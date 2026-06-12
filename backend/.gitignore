@@ -1,3 +1,7 @@
 node_modules
 .env
 .DS_Store
+node_modules/
+.env
+circuits/build/*.ptau
+circuits/build/*_0000.zkey
