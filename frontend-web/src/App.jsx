@@ -29,7 +29,8 @@ function App() {
 
   const navigate = (nextPath) => {
     window.history.pushState({}, '', nextPath);
-    setPath(nextPath);
+    // 상태엔 쿼리스트링을 뺀 경로만 저장 — '/booking?eventId=..'도 '/booking'으로 매칭.
+    setPath(nextPath.split('?')[0]);
   };
 
   const renderPage = () => {
