@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import QRCodePanel from '../components/QRCodePanel.jsx';
 import { generateNonce } from '../api/qrushApi.js';
+import { verifyProofUrl, IS_MOCK } from '../config.js';
 
 export default function GatePage() {
   const [nonce, setNonce] = useState('');
-  const [countdown, setCountdown] = useState(30);
+  const [expiresIn, setExpiresIn] = useState(30); // nonce 1개의 유효시간(고정)
+  const [countdown, setCountdown] = useState(30); // 화면 표시용
   const [status, setStatus] = useState('waiting');
   const [loading, setLoading] = useState(false);
 
@@ -12,6 +14,7 @@ export default function GatePage() {
     setLoading(true);
     const result = await generateNonce();
     setNonce(result.nonce);
+    setExpiresIn(result.expiresIn || 30);
     setCountdown(result.expiresIn || 30);
     setStatus('waiting');
     setLoading(false);
@@ -29,7 +32,7 @@ export default function GatePage() {
       setCountdown((current) => {
         if (current <= 1) {
           refreshNonce();
-          return 30;
+          return expiresIn;
         }
 
         return current - 1;
@@ -37,17 +40,19 @@ export default function GatePage() {
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [nonce, refreshNonce, status]);
+  }, [nonce, refreshNonce, status, expiresIn]);
 
+  // QR 페이로드는 nonce당 고정 — countdown은 넣지 않아 매초 재생성되지 않는다.
+  // D 앱이 그대로 파싱: nonce(hex) + proof를 POST할 절대 endpoint.
   const qrPayload = useMemo(
     () =>
       JSON.stringify({
         type: 'QRushGateChallenge',
         nonce,
-        endpoint: '/verify-proof',
-        expiresIn: countdown,
+        endpoint: verifyProofUrl(),
+        expiresIn,
       }),
-    [countdown, nonce],
+    [expiresIn, nonce],
   );
 
   return (
@@ -69,6 +74,9 @@ export default function GatePage() {
           <span>nonce</span>
           <code>{nonce || '생성 중'}</code>
         </div>
+        <p className="hint-text">
+          proof 수신 endpoint: <code>{verifyProofUrl() || '(서버 미설정 — mock)'}</code>
+        </p>
       </div>
 
       <aside className={`gate-status ${status}`}>
@@ -102,6 +110,12 @@ export default function GatePage() {
             nonce 재발급
           </button>
         </div>
+        {!IS_MOCK && (
+          <p className="hint-text">
+            ※ 실서버 모드에선 D가 proof를 위 endpoint로 직접 전송합니다. 게이트 결과 실시간
+            표시는 A의 결과조회/푸시 API가 정해지면 연결하세요(아래 설명).
+          </p>
+        )}
       </aside>
     </section>
   );

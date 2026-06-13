@@ -4,11 +4,23 @@ import QRCodePanel from '../components/QRCodePanel.jsx';
 import { mintTicket, verifyVp } from '../api/qrushApi.js';
 import { mockEvents, seatRows } from '../data/mockData.js';
 
+// "2003-04-15" → 만 나이(정수)
+function calcAge(birthdateStr) {
+  if (!birthdateStr) return 0;
+  const b = new Date(birthdateStr);
+  const now = new Date();
+  let age = now.getFullYear() - b.getFullYear();
+  const m = now.getMonth() - b.getMonth();
+  if (m < 0 || (m === 0 && now.getDate() < b.getDate())) age -= 1;
+  return age;
+}
+
 export default function BookingPage() {
   const eventId = new URLSearchParams(window.location.search).get('eventId') || mockEvents[0].id;
   const event = mockEvents.find((item) => item.id === eventId) || mockEvents[0];
   const [walletAddress, setWalletAddress] = useState('');
   const [selectedSeat, setSelectedSeat] = useState('A1');
+  const [credentialText, setCredentialText] = useState('');
   const [vpText, setVpText] = useState('');
   const [signature, setSignature] = useState('');
   const [bookingResult, setBookingResult] = useState(null);
@@ -34,26 +46,45 @@ export default function BookingPage() {
     setWalletAddress(accounts[0]);
   };
 
-  const signMockVp = async () => {
+  // 발급 페이지에서 만든 credential JSON을 붙여넣고 → A 명세 형태의 VP를
+  // MetaMask로 서명. 서명 대상은 compact JSON.stringify(vp) (D 앱과 동일).
+  const signVpFromCredential = async () => {
     if (!window.ethereum) {
       alert('MetaMask가 필요합니다.');
       return;
     }
 
+    let credential;
+    try {
+      credential = JSON.parse(credentialText);
+    } catch {
+      alert('발급 페이지의 VC JSON을 그대로 붙여넣어 주세요.');
+      return;
+    }
+
     const provider = new ethers.BrowserProvider(window.ethereum);
     const signer = await provider.getSigner();
-    const vp = {
-      type: 'QRushBookingVP',
-      eventId: event.id,
-      seat: selectedSeat,
-      audience: walletAddress || (await signer.getAddress()),
-      createdAt: new Date().toISOString(),
-    };
-    const vpJson = JSON.stringify(vp, null, 2);
+    const holder = walletAddress || (await signer.getAddress());
+    const subject = credential.vc?.credentialSubject || {};
 
-    setWalletAddress(vp.audience);
-    setVpText(vpJson);
-    setSignature(await signer.signMessage(vpJson));
+    // ⚠️ 키 순서 고정: holder, did, issuer, vcHash, claims{ name, age }
+    // A 서버가 ecrecover(JSON.stringify(vp)) 하므로 순서가 어긋나면 검증 실패.
+    const vp = {
+      holder,
+      did: subject.id || holder,
+      issuer: credential.issuer,
+      vcHash: credential.vcHash,
+      claims: {
+        name: subject.name,
+        age: calcAge(subject.birthdate),
+      },
+    };
+
+    const sig = await signer.signMessage(JSON.stringify(vp));
+
+    setWalletAddress(holder);
+    setVpText(JSON.stringify(vp, null, 2));
+    setSignature(sig);
   };
 
   const submitBooking = async () => {
@@ -72,8 +103,8 @@ export default function BookingPage() {
 
       const mintResult = await mintTicket({
         eventId: event.id,
-        seat: selectedSeat,
-        walletAddress: parsedVp.audience,
+        seatId: selectedSeat,
+        buyerWallet: verifyResult.holder || parsedVp.holder,
       });
 
       setBookingResult({
@@ -131,9 +162,6 @@ export default function BookingPage() {
                 ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
                 : '지갑 연결'}
             </button>
-            <button className="secondary-button" onClick={signMockVp} type="button">
-              MetaMask로 mock VP 서명
-            </button>
           </div>
         </section>
 
@@ -146,14 +174,29 @@ export default function BookingPage() {
       <section className="panel form-panel">
         <div className="section-title">
           <h3>VP 검증 + 티켓 발급</h3>
-          <span>D 앱 연동 전에는 아래 입력창으로 mock 검증할 수 있습니다.</span>
+          <span>D 앱이 보낸 VP+서명을 붙여넣거나, 아래에서 셀프 테스트용 VP를 만들 수 있습니다.</span>
+        </div>
+
+        <label>
+          (셀프 테스트) 발급 페이지 VC JSON 붙여넣기
+          <textarea
+            onChange={(event) => setCredentialText(event.target.value)}
+            placeholder='{"vc":{...},"issuer":"0x...","vcHash":"...","vcSecret":"..."}'
+            rows={4}
+            value={credentialText}
+          />
+        </label>
+        <div className="booking-actions">
+          <button className="secondary-button" onClick={signVpFromCredential} type="button">
+            MetaMask로 VP 서명 생성
+          </button>
         </div>
 
         <label>
           VP JSON
           <textarea
             onChange={(event) => setVpText(event.target.value)}
-            placeholder='{"type":"QRushBookingVP","audience":"0x..."}'
+            placeholder='{"holder":"0x...","did":"did:qrush:...","issuer":"0x...","vcHash":"...","claims":{"name":"홍길동","age":23}}'
             rows={8}
             value={vpText}
           />
