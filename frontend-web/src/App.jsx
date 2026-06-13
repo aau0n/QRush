@@ -60,11 +60,6 @@ function App() {
             </button>
           ))}
         </nav>
-
-        <div className="sidebar-note">
-          <strong>C 담당 범위</strong>
-          <span>VC 발급, 예매 화면, VP 검증 연동, 게이트 nonce QR, 티켓 조회</span>
-        </div>
       </aside>
 
       <main className="page">{renderPage()}</main>
