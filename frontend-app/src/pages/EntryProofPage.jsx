@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import JsonPreview from '../components/JsonPreview.jsx';
-import { mockHolderProfile, mockTickets } from '../data/mockWalletData.js';
+import { mockHolderProfile } from '../data/mockWalletData.js';
 import { generateEntryProof } from '../services/zkpProof.js';
+import { getConnectedMetaMaskAccount } from '../services/metamaskConnect.js';
 import {
   loadHolderProfile,
   loadLastEntryProof,
@@ -9,7 +10,10 @@ import {
   loadTickets,
   loadVc,
   saveLastEntryProof,
+  saveSelectedTicket,
+  saveTickets,
 } from '../services/storage.js';
+import { fetchTicketsByWallet } from '../services/ticketSync.js';
 
 const sampleGateChallenge = {
   type: 'QRushGateChallenge',
@@ -97,6 +101,17 @@ function getInitialParsedChallenge() {
   }
 }
 
+function withConnectedWallet(profile) {
+  const connectedWallet = getConnectedMetaMaskAccount();
+  return connectedWallet ? { ...profile, walletAddress: connectedWallet } : profile;
+}
+
+function pickSelectedTokenId(tickets, currentTokenId) {
+  if (!tickets.length) return '';
+  if (tickets.some((ticket) => ticket.tokenId === currentTokenId)) return currentTokenId;
+  return getInitialSelectedTokenId(tickets);
+}
+
 async function buildProofPayload({ challenge, ticket, profile, savedVc }) {
   const startedAt = performance.now();
   const { input, proof, publicSignals } = await generateEntryProof({
@@ -134,11 +149,11 @@ async function buildProofPayload({ challenge, ticket, profile, savedVc }) {
 }
 
 export default function EntryProofPage() {
-  const [profile] = useState(() => loadHolderProfile(mockHolderProfile));
+  const [profile] = useState(() => withConnectedWallet(loadHolderProfile(mockHolderProfile)));
   const [savedVc] = useState(() => loadVc(null));
-  const [tickets] = useState(() => loadTickets(mockTickets));
+  const [tickets, setTickets] = useState(() => loadTickets([]));
   const [selectedTokenId, setSelectedTokenId] = useState(() =>
-    getInitialSelectedTokenId(loadTickets(mockTickets)),
+    getInitialSelectedTokenId(loadTickets([])),
   );
   const [challengeText, setChallengeText] = useState(getInitialChallengeText);
   const [parsedChallenge, setParsedChallenge] = useState(getInitialParsedChallenge);
@@ -148,6 +163,67 @@ export default function EntryProofPage() {
   const [error, setError] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSyncingTickets, setIsSyncingTickets] = useState(false);
+
+  const syncTickets = async ({ quiet = false } = {}) => {
+    if (!profile?.walletAddress) {
+      if (!quiet) setError('지갑 주소가 없습니다. 먼저 지갑 홈에서 MetaMask를 연결해 주세요.');
+      return;
+    }
+
+    if (!quiet) {
+      setError('');
+      setStatusMessage('');
+    }
+    setIsSyncingTickets(true);
+
+    try {
+      const nextTickets = await fetchTicketsByWallet(profile.walletAddress);
+      const nextTokenId = pickSelectedTokenId(nextTickets, selectedTokenId);
+
+      saveTickets(nextTickets);
+      setTickets(nextTickets);
+      setSelectedTokenId(nextTokenId);
+
+      const selectedTicket = nextTickets.find((ticket) => ticket.tokenId === nextTokenId);
+      if (selectedTicket) saveSelectedTicket(selectedTicket);
+
+      if (!quiet) setStatusMessage(`서버에서 티켓 ${nextTickets.length}개를 동기화했습니다.`);
+    } catch (nextError) {
+      if (!quiet) setError(nextError.message || '티켓 동기화에 실패했습니다.');
+    } finally {
+      setIsSyncingTickets(false);
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function syncInitialTickets() {
+      if (tickets.length || !profile?.walletAddress) return;
+
+      try {
+        const nextTickets = await fetchTicketsByWallet(profile.walletAddress);
+        if (cancelled) return;
+
+        const nextTokenId = pickSelectedTokenId(nextTickets, selectedTokenId);
+        const selectedTicket = nextTickets.find((ticket) => ticket.tokenId === nextTokenId);
+
+        saveTickets(nextTickets);
+        setTickets(nextTickets);
+        setSelectedTokenId(nextTokenId);
+        if (selectedTicket) saveSelectedTicket(selectedTicket);
+      } catch {
+        // Keep the page usable; the manual sync button will surface errors.
+      }
+    }
+
+    syncInitialTickets();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [profile?.walletAddress, selectedTokenId, tickets.length]);
 
   const fillSampleChallenge = () => {
     setChallengeText(JSON.stringify(sampleGateChallenge, null, 2));
@@ -395,7 +471,15 @@ export default function EntryProofPage() {
 
         <label>
           사용할 티켓
-          <select value={selectedTokenId} onChange={(event) => setSelectedTokenId(event.target.value)}>
+          <select
+            value={selectedTokenId}
+            onChange={(event) => {
+              const nextTokenId = event.target.value;
+              setSelectedTokenId(nextTokenId);
+              const nextTicket = tickets.find((ticket) => ticket.tokenId === nextTokenId);
+              if (nextTicket) saveSelectedTicket(nextTicket);
+            }}
+          >
             {tickets.map((ticket) => (
               <option key={ticket.tokenId} value={ticket.tokenId}>
                 #{ticket.tokenId} / {ticket.eventTitle} / {ticket.seat} / {ticket.status}
@@ -419,6 +503,9 @@ export default function EntryProofPage() {
         </div>
 
         <div className="button-row">
+          <button className="secondary-button" type="button" onClick={() => syncTickets()} disabled={isSyncingTickets}>
+            {isSyncingTickets ? '티켓 동기화 중' : '서버 티켓 동기화'}
+          </button>
           <button className="secondary-button" type="button" onClick={createEntryProof} disabled={isGenerating}>
             {isGenerating ? 'proof 생성 중' : '입장 proof 생성'}
           </button>
