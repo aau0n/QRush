@@ -1,96 +1,78 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import JsonPreview from '../components/JsonPreview.jsx';
 import { mockHolderProfile, mockTickets } from '../data/mockWalletData.js';
+import { generateEntryProof } from '../services/zkpProof.js';
 import {
   loadHolderProfile,
   loadLastEntryProof,
   loadSelectedTicket,
   loadTickets,
   loadVc,
-  saveHolderProfile,
   saveLastEntryProof,
-  saveTickets,
 } from '../services/storage.js';
 
 const sampleGateChallenge = {
   type: 'QRushGateChallenge',
-  nonce: 'mock-nonce-1234567890abcdef',
+  nonce: 'a1b21234567890abcdef',
   endpoint: '/verify-proof',
   expiresIn: 30,
 };
 
-function buildMockProof({ challenge, ticket, profile, savedVc }) {
+function getInitialSelectedTokenId(tickets) {
+  const selectedTicketFromWallet = loadSelectedTicket(null);
+  const selectedTicketStillExists = tickets.find(
+    (ticket) => ticket.tokenId === selectedTicketFromWallet?.tokenId,
+  );
+
+  return (
+    selectedTicketStillExists?.tokenId ||
+    tickets.find((ticket) => ticket.status === 'VALID')?.tokenId ||
+    tickets[0]?.tokenId ||
+    ''
+  );
+}
+
+async function buildProofPayload({ challenge, ticket, profile, savedVc }) {
+  const { input, proof, publicSignals } = await generateEntryProof({
+    challenge,
+    ticket,
+    savedVc,
+  });
+
   return {
     type: 'QRushEntryProof',
     tokenId: ticket.tokenId,
     holderDid: profile.holderDid,
     walletAddress: profile.walletAddress,
-    vcHash: savedVc?.vcHash || null,
+    vcHash: input.vcHash,
     nonce: challenge.nonce,
     gateEndpoint: challenge.endpoint || '/verify-proof',
-    proof: {
-      pi_a: ['mock-pi-a-1', 'mock-pi-a-2'],
-      pi_b: [
-        ['mock-pi-b-1', 'mock-pi-b-2'],
-        ['mock-pi-b-3', 'mock-pi-b-4'],
-      ],
-      pi_c: ['mock-pi-c-1', 'mock-pi-c-2'],
-      protocol: 'groth16',
-      curve: 'bn128',
+    proof,
+    publicSignals,
+    proofInput: input,
+    verifyProofBody: {
+      proof,
+      publicSignals,
+      nonce: challenge.nonce,
+      tokenId: ticket.tokenId,
     },
-    publicSignals: [
-      challenge.nonce,
-      ticket.tokenId,
-      savedVc?.vcHash || 'no-vc-hash',
-    ],
     createdAt: new Date().toISOString(),
   };
 }
 
 export default function EntryProofPage() {
-  const [profile, setProfile] = useState(null);
-  const [savedVc, setSavedVc] = useState(null);
-  const [tickets, setTickets] = useState([]);
-  const [selectedTokenId, setSelectedTokenId] = useState('');
+  const [profile] = useState(() => loadHolderProfile(mockHolderProfile));
+  const [savedVc] = useState(() => loadVc(null));
+  const [tickets] = useState(() => loadTickets(mockTickets));
+  const [selectedTokenId, setSelectedTokenId] = useState(() =>
+    getInitialSelectedTokenId(loadTickets(mockTickets)),
+  );
   const [challengeText, setChallengeText] = useState('');
   const [parsedChallenge, setParsedChallenge] = useState(null);
-  const [entryProof, setEntryProof] = useState(null);
+  const [entryProof, setEntryProof] = useState(() => loadLastEntryProof(null));
   const [statusMessage, setStatusMessage] = useState('');
   const [error, setError] = useState('');
-
-  useEffect(() => {
-    const currentProfile = loadHolderProfile(mockHolderProfile);
-    const currentTickets = loadTickets(mockTickets);
-    const currentVc = loadVc(null);
-    const lastProof = loadLastEntryProof(null);
-    const selectedTicketFromWallet = loadSelectedTicket(null);
-
-    saveHolderProfile(currentProfile);
-    saveTickets(currentTickets);
-
-    setProfile(currentProfile);
-    setTickets(currentTickets);
-    setSavedVc(currentVc);
-
-    const selectedTicketStillExists = currentTickets.find(
-    (ticket) => ticket.tokenId === selectedTicketFromWallet?.tokenId,
-    );
-
-    if (selectedTicketStillExists) {
-    setSelectedTokenId(selectedTicketStillExists.tokenId);
-    setStatusMessage(`티켓 목록에서 선택한 #${selectedTicketStillExists.tokenId}를 자동으로 불러왔습니다.`);
-    } else {
-    setSelectedTokenId(
-        currentTickets.find((ticket) => ticket.status === 'VALID')?.tokenId ||
-        currentTickets[0]?.tokenId ||
-        '',
-    );
-    }
-
-    if (lastProof) {
-    setEntryProof(lastProof);
-    }
-  }, []);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const fillSampleChallenge = () => {
     setChallengeText(JSON.stringify(sampleGateChallenge, null, 2));
@@ -121,53 +103,62 @@ export default function EntryProofPage() {
     }
   };
 
-  const createEntryProof = () => {
+  const createEntryProof = async () => {
     setError('');
     setStatusMessage('');
+    setIsGenerating(true);
 
-    if (!profile) {
-      setError('Holder profile이 없습니다.');
-      return;
+    try {
+      if (!profile) {
+        throw new Error('Holder profile이 없습니다.');
+      }
+
+      if (!savedVc) {
+        throw new Error('저장된 VC가 없습니다. 먼저 VC 저장 화면에서 VC를 저장해주세요.');
+      }
+
+      if (!parsedChallenge) {
+        throw new Error('먼저 Gate Challenge를 파싱해주세요.');
+      }
+
+      const selectedTicket = tickets.find((ticket) => ticket.tokenId === selectedTokenId);
+
+      if (!selectedTicket) {
+        throw new Error('선택한 티켓을 찾을 수 없습니다.');
+      }
+
+      if (selectedTicket.status !== 'VALID') {
+        throw new Error('사용 가능한 티켓만 입장 증명에 사용할 수 있습니다.');
+      }
+
+      const proofPayload = await buildProofPayload({
+        challenge: parsedChallenge,
+        ticket: selectedTicket,
+        profile,
+        savedVc,
+      });
+
+      setEntryProof(proofPayload);
+      saveLastEntryProof(proofPayload);
+      setStatusMessage('ZKP entry proof payload를 생성했습니다.');
+    } catch (nextError) {
+      setError(nextError.message || 'ZKP proof 생성에 실패했습니다.');
+    } finally {
+      setIsGenerating(false);
     }
-
-    if (!savedVc) {
-      setError('저장된 VC가 없습니다. 먼저 VC 저장 화면에서 VC를 저장해 주세요.');
-      return;
-    }
-
-    if (!parsedChallenge) {
-      setError('먼저 Gate Challenge를 파싱해 주세요.');
-      return;
-    }
-
-    const selectedTicket = tickets.find((ticket) => ticket.tokenId === selectedTokenId);
-
-    if (!selectedTicket) {
-      setError('선택된 티켓을 찾을 수 없습니다.');
-      return;
-    }
-
-    if (selectedTicket.status !== 'VALID') {
-      setError('사용 가능한 티켓만 입장 증명에 사용할 수 있습니다.');
-      return;
-    }
-
-    const proofPayload = buildMockProof({
-      challenge: parsedChallenge,
-      ticket: selectedTicket,
-      profile,
-      savedVc,
-    });
-
-    setEntryProof(proofPayload);
-    saveLastEntryProof(proofPayload);
-    setStatusMessage('입장용 mock proof payload를 생성했습니다.');
   };
 
   const copyEntryProof = async () => {
     if (!entryProof) return;
 
-    await navigator.clipboard.writeText(JSON.stringify(entryProof, null, 2));
+    const payload = entryProof.verifyProofBody || {
+      proof: entryProof.proof,
+      publicSignals: entryProof.publicSignals,
+      nonce: entryProof.nonce,
+      tokenId: entryProof.tokenId,
+    };
+
+    await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
     setStatusMessage('/verify-proof 요청 payload를 클립보드에 복사했습니다.');
   };
 
@@ -177,8 +168,8 @@ export default function EntryProofPage() {
         <p className="eyebrow">04 Entry Proof</p>
         <h2>입장 증명 생성</h2>
         <p>
-          C 웹 Gate 화면의 nonce QR payload를 입력받고, 사용 가능한 티켓과 VC를 기반으로
-          입장 검증용 proof payload를 생성합니다.
+          C의 Gate 화면에서 nonce QR payload를 입력받고, 사용 가능한 티켓과 VC를 기반으로
+          입장 검증용 Groth16 proof payload를 생성합니다.
         </p>
       </div>
 
@@ -186,7 +177,7 @@ export default function EntryProofPage() {
         <section className="panel form-panel">
           <div className="section-title">
             <h3>Gate QR Payload 입력</h3>
-            <span>C 웹 Gate 화면 QR을 스캔한 결과를 붙여넣는 자리입니다.</span>
+            <span>C Gate 화면 QR을 스캔한 결과를 붙여넣는 영역입니다.</span>
           </div>
 
           <label>
@@ -266,8 +257,8 @@ export default function EntryProofPage() {
         </div>
 
         <div className="button-row">
-          <button className="primary-button" type="button" onClick={createEntryProof}>
-            입장 proof 생성
+          <button className="primary-button" type="button" onClick={createEntryProof} disabled={isGenerating}>
+            {isGenerating ? 'proof 생성 중' : '입장 proof 생성'}
           </button>
           <button className="secondary-button" type="button" onClick={copyEntryProof} disabled={!entryProof}>
             /verify-proof payload 복사

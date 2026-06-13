@@ -31,7 +31,9 @@ export const sampleVcPayload = {
       id: 'did:qrush:user-demo001',
       name: '홍길동',
       birthdate: '2001-01-01',
+      vcSecret: '987654321',
     },
   },
-  vcHash: 'mock-vc-hash-1234567890abcdef',
+  vcSecret: '987654321',
+  vcHash: '19733513790785789764798600664083567016339786137891631570981147804767237089962',
 };
