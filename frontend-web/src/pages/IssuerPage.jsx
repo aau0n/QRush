@@ -2,6 +2,7 @@ import { useState } from 'react';
 import QRCodePanel from '../components/QRCodePanel.jsx';
 import { registerVcHash } from '../api/qrushApi.js';
 import { computeVcHash, randomVcSecret, stableJson, toYyyymmdd } from '../utils/hash.js';
+import { loadIssuedVcs, saveIssuedVcs } from '../utils/vcStore.js';
 import { ISSUER_ADDRESS, IS_MOCK } from '../config.js';
 
 const initialForm = {
@@ -12,9 +13,17 @@ const initialForm = {
 
 export default function IssuerPage() {
   const [form, setForm] = useState(initialForm);
-  const [issued, setIssued] = useState(null);
+  const [history, setHistory] = useState(loadIssuedVcs); // localStorage에서 복원
+  const [selectedId, setSelectedId] = useState(() => loadIssuedVcs()[0]?.id || null);
   const [status, setStatus] = useState('idle');
   const [error, setError] = useState('');
+
+  const issued = history.find((c) => c.id === selectedId) || null;
+
+  const persist = (next) => {
+    setHistory(next);
+    saveIssuedVcs(next);
+  };
 
   const updateForm = (event) => {
     setForm((current) => ({
@@ -52,6 +61,8 @@ export default function IssuerPage() {
 
       // 4) D 앱이 proof/VP를 만드는 데 필요한 모든 값을 한 객체로 — QR로 전달
       const credential = {
+        id: crypto.randomUUID(),
+        issuedAt: new Date().toISOString(),
         vc,
         issuer: ISSUER_ADDRESS,
         vcHash, // 십진 문자열
@@ -60,7 +71,9 @@ export default function IssuerPage() {
         registerTxHash: result.txHash,
       };
 
-      setIssued(credential);
+      persist([credential, ...history]); // 최신을 맨 앞에
+      setSelectedId(credential.id);
+      setForm(initialForm);
       setStatus('done');
     } catch (nextError) {
       setError(nextError.message || 'VC 발급에 실패했습니다.');
@@ -68,7 +81,28 @@ export default function IssuerPage() {
     }
   };
 
-  const credentialJson = issued ? stableJson(issued) : '';
+  const removeVc = (id) => {
+    const next = history.filter((c) => c.id !== id);
+    persist(next);
+    if (selectedId === id) setSelectedId(next[0]?.id || null);
+  };
+
+  const clearAll = () => {
+    persist([]);
+    setSelectedId(null);
+  };
+
+  // QR/JSON에는 내부 메타(id, issuedAt)를 빼고 D에게 필요한 값만 담는다.
+  const credentialJson = issued
+    ? stableJson({
+        vc: issued.vc,
+        issuer: issued.issuer,
+        vcHash: issued.vcHash,
+        vcSecret: issued.vcSecret,
+        birthdate: issued.birthdate,
+        registerTxHash: issued.registerTxHash,
+      })
+    : '';
 
   return (
     <section className="content-stack">
@@ -147,6 +181,36 @@ export default function IssuerPage() {
           )}
         </div>
       </div>
+
+      {history.length > 0 && (
+        <section className="panel">
+          <div className="section-title">
+            <h3>발급 이력 ({history.length})</h3>
+            <button className="link-button" onClick={clearAll} type="button">
+              전체 삭제
+            </button>
+          </div>
+          <div className="vc-history">
+            {history.map((c) => (
+              <div
+                className={c.id === selectedId ? 'vc-history-item active' : 'vc-history-item'}
+                key={c.id}
+              >
+                <button className="vc-history-main" onClick={() => setSelectedId(c.id)} type="button">
+                  <strong>{c.vc?.credentialSubject?.name || '(이름 없음)'}</strong>
+                  <span>{c.vc?.credentialSubject?.birthdate}</span>
+                  <code>{c.vcHash.slice(0, 14)}…</code>
+                  <small>{new Date(c.issuedAt).toLocaleString()}</small>
+                </button>
+                <button className="vc-history-del" onClick={() => removeVc(c.id)} type="button">
+                  삭제
+                </button>
+              </div>
+            ))}
+          </div>
+          <p className="hint-text">발급한 VC는 이 브라우저에 저장되어 새로고침·페이지 이동에도 유지됩니다.</p>
+        </section>
+      )}
 
       {issued && (
         <section className="panel">
