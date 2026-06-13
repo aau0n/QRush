@@ -4,8 +4,8 @@ import { generateNonce, getGateResult } from '../api/qrushApi.js';
 import { verifyProofUrl, IS_MOCK } from '../config.js';
 
 export default function GatePage() {
-  const [nonce, setNonce] = useState(''); // hex (표시/참조용)
-  const [nonceField, setNonceField] = useState(''); // 십진 field — D가 proof input에 사용
+  const [nonce, setNonce] = useState(''); // 십진 field (canonical) — D가 proof/verify-proof에 사용
+  const [nonceHex, setNonceHex] = useState(''); // hex (표시/참조용)
   const [expiresIn, setExpiresIn] = useState(30); // nonce 1개의 유효시간(고정)
   const [countdown, setCountdown] = useState(30); // 화면 표시용
   const [status, setStatus] = useState('waiting');
@@ -15,7 +15,7 @@ export default function GatePage() {
     setLoading(true);
     const result = await generateNonce();
     setNonce(result.nonce);
-    setNonceField(result.nonceField || '');
+    setNonceHex(result.nonceHex || '');
     setExpiresIn(result.expiresIn || 30);
     setCountdown(result.expiresIn || 30);
     setStatus('waiting');
@@ -66,18 +66,18 @@ export default function GatePage() {
   }, [status, refreshNonce]);
 
   // QR 페이로드는 nonce당 고정 — countdown은 넣지 않아 매초 재생성되지 않는다.
-  // D 앱이 JSON 전체를 파싱: nonce(hex 참조) + nonceField(십진, proof input용)
-  // + proof를 POST할 절대 endpoint.
+  // D 앱이 JSON 전체를 파싱: nonce(십진 field)를 proof input + verify-proof body에
+  // 그대로 사용. nonceHex는 참고용. endpoint는 proof를 POST할 절대 주소.
   const qrPayload = useMemo(
     () =>
       JSON.stringify({
         type: 'QRushGateChallenge',
-        nonce, // hex
-        nonceField, // 십진 field — D는 이 값을 proof의 nonce input으로 사용
+        nonce, // 십진 field (canonical)
+        nonceHex, // 참고용
         endpoint: verifyProofUrl(),
         expiresIn,
       }),
-    [expiresIn, nonce, nonceField],
+    [expiresIn, nonce, nonceHex],
   );
 
   return (
@@ -96,8 +96,8 @@ export default function GatePage() {
         </div>
 
         <div className="nonce-box">
-          <span>nonce</span>
-          <code>{nonce || '생성 중'}</code>
+          <span>nonce (hex 표시 · QR엔 십진 field)</span>
+          <code>{nonceHex || nonce || '생성 중'}</code>
         </div>
         <p className="hint-text">
           proof 수신 endpoint: <code>{verifyProofUrl() || '(서버 미설정 — mock)'}</code>

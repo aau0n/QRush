@@ -95,21 +95,22 @@ export async function mintTicket({ eventId, seatId, buyerWallet }) {
 }
 
 // POST /api/gate/generate-nonce  (C 게이트 단말기)
-// → { nonce(hex 32자), nonceField(십진), expiresInSec }
+// backend 반환: { nonce(십진 field — 회로/체인/verify-proof 입력용), nonceHex(참고용), expiresInSec }
+// ⚠️ canonical 값은 "nonce"(십진). hex는 보조.
 export async function generateNonce() {
   const body = await request(
     '/api/gate/generate-nonce',
     { method: 'POST' },
     () => {
       const bytes = crypto.getRandomValues(new Uint8Array(16));
-      const nonce = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
-      return { nonce, nonceField: BigInt(`0x${nonce}`).toString(), expiresInSec: 30 };
+      const nonceHex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+      return { nonce: BigInt(`0x${nonceHex}`).toString(), nonceHex, expiresInSec: 30 };
     },
   );
 
   return {
-    nonce: body?.nonce,
-    nonceField: body?.nonceField,
+    nonce: body?.nonce, // 십진 field (canonical)
+    nonceHex: body?.nonceHex, // hex (참고용)
     expiresIn: body?.expiresInSec ?? body?.expiresIn ?? 30,
   };
 }
