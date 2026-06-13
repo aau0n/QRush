@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ethers } from 'ethers';
 import QRCodePanel from '../components/QRCodePanel.jsx';
 import { mintTicket, verifyVp } from '../api/qrushApi.js';
 import { mockEvents, seatRows } from '../data/mockData.js';
+import { DAPP_BASE_URL } from '../config.js';
 
 // "2003-04-15" → 만 나이(정수)
 function calcAge(birthdateStr) {
@@ -16,25 +17,95 @@ function calcAge(birthdateStr) {
 }
 
 export default function BookingPage() {
-  const eventId = new URLSearchParams(window.location.search).get('eventId') || mockEvents[0].id;
+  const query = new URLSearchParams(window.location.search);
+  const eventId = query.get('eventId') || mockEvents[0].id;
   const event = mockEvents.find((item) => item.id === eventId) || mockEvents[0];
   const [walletAddress, setWalletAddress] = useState('');
-  const [selectedSeat, setSelectedSeat] = useState('A1');
+  const [selectedSeat, setSelectedSeat] = useState(query.get('seat') || 'A1');
   const [credentialText, setCredentialText] = useState('');
   const [vpText, setVpText] = useState('');
   const [signature, setSignature] = useState('');
   const [bookingResult, setBookingResult] = useState(null);
   const [status, setStatus] = useState('idle');
+  const [received, setReceived] = useState(false);
+  const handledCallback = useRef(false);
 
+  // 예매 QR — D 웹앱(frontend-app)으로 바로 들어가는 HTTP 링크.
+  // http://<D_APP_HOST>:5174/vp?eventId=..&seat=..&callback=<encoded C booking URL>
+  // callback은 같은 WiFi에서 접근 가능한 IP여야 함(window.location.origin = 접속한 IP).
   const deeplink = useMemo(() => {
     const params = new URLSearchParams({
       eventId: event.id,
       seat: selectedSeat,
       callback: `${window.location.origin}/booking`,
     });
-
-    return `qrush://create-vp?${params.toString()}`;
+    return `${DAPP_BASE_URL}/vp?${params.toString()}`;
   }, [event.id, selectedSeat]);
+
+  // verify-vp → mint-ticket (수동 제출과 callback 자동 제출이 공유)
+  const runBooking = useCallback(
+    async (parsedVp, sig) => {
+      setStatus('loading');
+      setBookingResult(null);
+      try {
+        const verifyResult = await verifyVp(parsedVp, sig);
+        if (!verifyResult.verified) {
+          setBookingResult({ ok: false, message: verifyResult.reason || 'VP 검증 실패' });
+          setStatus('done');
+          return;
+        }
+
+        const mintResult = await mintTicket({
+          eventId: event.id,
+          seatId: selectedSeat,
+          buyerWallet: verifyResult.holder || parsedVp.holder,
+        });
+
+        setBookingResult({
+          ok: true,
+          tokenId: mintResult.tokenId,
+          txHash: mintResult.txHash,
+          message: '예매가 완료되었습니다.',
+        });
+        setStatus('done');
+      } catch (error) {
+        setBookingResult({ ok: false, message: error.message || '예매 처리 실패' });
+        setStatus('done');
+      }
+    },
+    [event.id, selectedSeat],
+  );
+
+  // D가 서명 후 callback?vp=..&signature=..&eventId=..&seat=.. 로 돌아옴.
+  // vp/signature가 있으면 자동으로 읽어 폼을 채우고 제출까지 실행한다.
+  useEffect(() => {
+    if (handledCallback.current) return;
+    const q = new URLSearchParams(window.location.search);
+    const vpParam = q.get('vp');
+    const sigParam = q.get('signature');
+    if (!vpParam || !sigParam) return;
+
+    handledCallback.current = true;
+    let parsed;
+    try {
+      parsed = JSON.parse(vpParam);
+    } catch {
+      return;
+    }
+
+    // 민감 파라미터(vp/signature)는 URL에서 제거 — 새로고침 재제출 방지.
+    const clean = new URLSearchParams({ eventId, seat: q.get('seat') || selectedSeat });
+    window.history.replaceState({}, '', `/booking?${clean.toString()}`);
+
+    // 상태 변경/제출은 커밋 이후로 미룬다(set-state-in-effect 회피).
+    const t = window.setTimeout(() => {
+      setVpText(JSON.stringify(parsed, null, 2));
+      setSignature(sigParam);
+      setReceived(true);
+      runBooking(parsed, sigParam);
+    }, 0);
+    return () => window.clearTimeout(t);
+  }, [runBooking, eventId, selectedSeat]);
 
   const connectWallet = async () => {
     if (!window.ethereum) {
@@ -68,7 +139,6 @@ export default function BookingPage() {
     const subject = credential.vc?.credentialSubject || {};
 
     // ⚠️ 키 순서 고정: holder, did, issuer, vcHash, claims{ name, age }
-    // A 서버가 ecrecover(JSON.stringify(vp)) 하므로 순서가 어긋나면 검증 실패.
     const vp = {
       holder,
       did: subject.id || holder,
@@ -87,37 +157,16 @@ export default function BookingPage() {
     setSignature(sig);
   };
 
-  const submitBooking = async () => {
-    setStatus('loading');
-    setBookingResult(null);
-
+  const submitBooking = () => {
+    let parsedVp;
     try {
-      const parsedVp = JSON.parse(vpText);
-      const verifyResult = await verifyVp(parsedVp, signature);
-
-      if (!verifyResult.verified) {
-        setBookingResult({ ok: false, message: verifyResult.reason || 'VP 검증 실패' });
-        setStatus('done');
-        return;
-      }
-
-      const mintResult = await mintTicket({
-        eventId: event.id,
-        seatId: selectedSeat,
-        buyerWallet: verifyResult.holder || parsedVp.holder,
-      });
-
-      setBookingResult({
-        ok: true,
-        tokenId: mintResult.tokenId,
-        txHash: mintResult.txHash,
-        message: '예매가 완료되었습니다.',
-      });
+      parsedVp = JSON.parse(vpText);
+    } catch {
+      setBookingResult({ ok: false, message: 'VP JSON 형식이 올바르지 않습니다.' });
       setStatus('done');
-    } catch (error) {
-      setBookingResult({ ok: false, message: error.message || '예매 처리 실패' });
-      setStatus('done');
+      return;
     }
+    runBooking(parsedVp, signature);
   };
 
   return (
@@ -125,7 +174,7 @@ export default function BookingPage() {
       <div className="page-header">
         <p className="eyebrow">03 Booking</p>
         <h2>좌석 선택과 예매 처리</h2>
-        <p>D 앱에 VP 생성을 요청하고, 받은 VP와 서명을 A 서버로 검증한 뒤 티켓 mint를 호출합니다.</p>
+        <p>QR을 D 앱으로 스캔해 VP 서명을 받고, A 서버 검증 후 티켓 mint를 호출합니다.</p>
       </div>
 
       <div className="two-column wide-left">
@@ -166,21 +215,30 @@ export default function BookingPage() {
         </section>
 
         <section className="panel">
-          <QRCodePanel label="D 앱 VP 생성 요청 QR" value={deeplink} />
+          <QRCodePanel label="D 앱으로 스캔할 VP 생성 QR" value={deeplink} />
           <pre>{deeplink}</pre>
+          <p className="hint-text">
+            폰의 MetaMask 앱 내 브라우저로 이 링크를 열면 VP 서명 후 자동으로 돌아옵니다.
+          </p>
         </section>
       </div>
 
       <section className="panel form-panel">
         <div className="section-title">
           <h3>VP 검증 + 티켓 발급</h3>
-          <span>D 앱이 보낸 VP+서명을 붙여넣거나, 아래에서 셀프 테스트용 VP를 만들 수 있습니다.</span>
+          <span>D 앱에서 돌아오면 자동 제출됩니다. (수동 붙여넣기·셀프 테스트도 가능)</span>
         </div>
 
         <p className="disclosure-note">
           🪪 <strong>예매 단계는 본인확인을 위해 이름·나이를 선택적으로 공개</strong>합니다.
           (입장 단계는 영지식 증명 — 신원을 전혀 공개하지 않습니다.)
         </p>
+
+        {received && (
+          <div className="status-row success">
+            <span>D 앱에서 VP·서명 수신 — 자동 검증·발급 진행</span>
+          </div>
+        )}
 
         <label>
           (셀프 테스트) 발급 페이지 VC JSON 붙여넣기

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import QRCodePanel from '../components/QRCodePanel.jsx';
 import { generateNonce, getGateResult } from '../api/qrushApi.js';
-import { verifyProofUrl, IS_MOCK } from '../config.js';
+import { verifyProofUrl, DAPP_BASE_URL, IS_MOCK } from '../config.js';
 
 // 긴 field 값을 화면용으로 축약
 const short = (v) => (v && String(v).length > 16 ? `${String(v).slice(0, 10)}…${String(v).slice(-4)}` : v);
@@ -72,19 +72,17 @@ export default function GatePage() {
     return () => window.clearTimeout(resetId);
   }, [status, refreshNonce]);
 
-  // QR 페이로드는 nonce당 고정 — D 앱이 nonce(십진 field)를 proof input + verify-proof
-  // body에 그대로 사용. nonceHex는 참고용. endpoint는 proof를 POST할 절대 주소.
-  const qrPayload = useMemo(
-    () =>
-      JSON.stringify({
-        type: 'QRushGateChallenge',
-        nonce,
-        nonceHex,
-        endpoint: verifyProofUrl(),
-        expiresIn,
-      }),
-    [expiresIn, nonce, nonceHex],
-  );
+  // 입장 QR — D 웹앱 /entry로 들어가는 HTTP 링크.
+  // http://<D_APP_HOST>:5174/entry?nonce=<십진>&endpoint=<encoded verify-proof>&expiresIn=30
+  // D는 nonce(십진 field)를 proof input + verify-proof body에 그대로 사용(nonceHex 미사용).
+  const qrPayload = useMemo(() => {
+    const params = new URLSearchParams({
+      nonce,
+      endpoint: verifyProofUrl(),
+      expiresIn: String(expiresIn),
+    });
+    return `${DAPP_BASE_URL}/entry?${params.toString()}`;
+  }, [expiresIn, nonce]);
 
   // 데모용 합성 publicSignals — 실서버에서 값이 안 와도 패널을 채워 보여준다.
   const demoSignals = () => ['1', '14872035981143377240118…', nonce || '0', '1', todayYmd()];
