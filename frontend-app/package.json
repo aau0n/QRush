@@ -10,7 +10,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "circomlibjs": "^0.1.7",
     "ethers": "^6.16.0",
     "qrcode": "^1.5.4",
     "react": "^19.2.6",

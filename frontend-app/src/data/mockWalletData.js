@@ -25,15 +25,14 @@ export const sampleVcPayload = {
   vc: {
     '@context': ['https://www.w3.org/2018/credentials/v1'],
     type: ['VerifiableCredential', 'QRushIdentityCredential'],
-    issuer: 'did:qrush:issuer-admin',
+    issuer: '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266',
     issuanceDate: '2026-05-28T00:00:00.000Z',
     credentialSubject: {
       id: 'did:qrush:user-demo001',
       name: '홍길동',
       birthdate: '2001-01-01',
-      vcSecret: '987654321',
     },
   },
-  vcSecret: '987654321',
+  issuer: '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266',
   vcHash: '19733513790785789764798600664083567016339786137891631570981147804767237089962',
 };

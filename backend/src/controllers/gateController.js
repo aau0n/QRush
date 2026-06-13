@@ -66,7 +66,7 @@ async function settle(res, nonceValue, { granted, status, reason = null, tokenId
  */
 exports.verifyProof = async (req, res) => {
   try {
-    const { proof, publicSignals, nonce, tokenId } = req.body;
+    const { proof, publicSignals, nonce, tokenId, vcHash } = req.body;
     if (!proof || !publicSignals || nonce == null || tokenId == null) {
       return res.status(400).json({ success: false, error: "proof, publicSignals, nonce, tokenId are required" });
     }
@@ -90,6 +90,9 @@ exports.verifyProof = async (req, res) => {
     }
     if (BigInt(ps.tokenId) !== BigInt(tokenId)) {
       return settle(res, nonce, { granted: false, reason: "Proof not bound to this tokenId" });
+    }
+    if (vcHash != null && BigInt(ps.vcHash) !== BigInt(vcHash)) {
+      return settle(res, nonce, { granted: false, reason: "Proof not bound to this vcHash" });
     }
     if (String(ps.isAdult) !== "1") {
       return settle(res, nonce, { granted: false, reason: "Not adult" });
@@ -122,8 +125,8 @@ exports.verifyProof = async (req, res) => {
       return settle(res, nonce, { granted: false, reason: "Invalid ZK proof" });
     }
 
-    // 7. 체인 useTicket
-    const tx = await blockchain.useTicketNFT(tokenId, ps.nonce, ps.vcHash, proof);
+    // 7. 체인 useTicket (B 시그니처: tokenId, nonce, vcHash, currentDate, pA, pB, pC)
+    const tx = await blockchain.useTicketNFT(tokenId, ps.nonce, ps.vcHash, ps.currentDate, proof);
     ticket.status = "USED";
     await ticket.save();
 

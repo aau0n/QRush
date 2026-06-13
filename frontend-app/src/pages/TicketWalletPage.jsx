@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import JsonPreview from '../components/JsonPreview.jsx';
 import TicketCard from '../components/TicketCard.jsx';
 import { mockHolderProfile, mockTickets } from '../data/mockWalletData.js';
@@ -18,23 +18,18 @@ function shortenAddress(address) {
 }
 
 export default function TicketWalletPage() {
-  const [profile, setProfile] = useState(null);
-  const [tickets, setTickets] = useState([]);
-  const [selectedTicket, setSelectedTicket] = useState(null);
-  const [statusMessage, setStatusMessage] = useState('');
-
-  useEffect(() => {
+  const [profile] = useState(() => {
     const currentProfile = loadHolderProfile(mockHolderProfile);
-    const currentTickets = loadTickets(mockTickets);
-    const currentSelectedTicket = loadSelectedTicket();
-
     saveHolderProfile(currentProfile);
+    return currentProfile;
+  });
+  const [tickets, setTickets] = useState(() => {
+    const currentTickets = loadTickets(mockTickets);
     saveTickets(currentTickets);
-
-    setProfile(currentProfile);
-    setTickets(currentTickets);
-    setSelectedTicket(currentSelectedTicket);
-  }, []);
+    return currentTickets;
+  });
+  const [selectedTicket, setSelectedTicket] = useState(() => loadSelectedTicket());
+  const [statusMessage, setStatusMessage] = useState('');
 
   const validTickets = useMemo(
     () => tickets.filter((ticket) => ticket.status === 'VALID'),

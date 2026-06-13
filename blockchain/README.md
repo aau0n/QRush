@@ -44,7 +44,7 @@ function verifyProof(
     uint[2] calldata pA,
     uint[2][2] calldata pB,
     uint[2] calldata pC,
-    uint[4] calldata pubSignals   // [vcHash, nonce, tokenId, isAdult]
+    uint[5] calldata pubSignals   // [isAdult, vcHash, nonce, tokenId, currentDate]
 ) external view returns (bool)
 ```
 
