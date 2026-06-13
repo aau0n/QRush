@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react';
 import { ethers } from 'ethers';
 import JsonPreview from '../components/JsonPreview.jsx';
 import { mockHolderProfile } from '../data/mockWalletData.js';
-import { loadHolderProfile, loadLastVp, loadVc, saveHolderProfile, saveLastVp } from '../services/storage.js';
+import { connectMetaMaskAccount, signMessageWithMetaMaskConnect } from '../services/metamaskConnect.js';
+import { loadHolderProfile, loadVc, saveHolderProfile, saveLastVp } from '../services/storage.js';
 
 const initialForm = {
   eventId: 'match-001',
@@ -53,7 +54,7 @@ function buildBookingVp({ profile, savedVc, walletAddress }) {
   const age = subject.age ?? calculateAge(subject.birthdate || savedVc?.birthdate);
 
   return {
-    holder: walletAddress || profile.walletAddress,
+    holder: walletAddress,
     did: subject.id || profile.holderDid,
     issuer: getIssuer(savedVc),
     vcHash: getVcHash(savedVc),
@@ -81,6 +82,51 @@ async function getEthereumProvider() {
   }
 
   throw new Error('현재 브라우저에 MetaMask 연결 객체가 없습니다. Safari로 열린 상태라면 MetaMask 앱 브라우저에서 이 페이지를 열어주세요.');
+}
+
+async function getConnectedAddress() {
+  if (window.ethereum) {
+    const ethereum = await getEthereumProvider();
+
+    const accounts = await ethereum.request({
+      method: 'eth_requestAccounts',
+    });
+
+    console.log('MetaMask accounts:', accounts);
+
+    return accounts[0] || '';
+  }
+
+  return connectMetaMaskAccount();
+}
+
+async function signVpMessage(message, preferredAddress = '') {
+  if (window.ethereum) {
+    const ethereum = await getEthereumProvider();
+    const provider = new ethers.BrowserProvider(ethereum);
+    const signer = await provider.getSigner();
+    const signerAddress = await signer.getAddress();
+    const nextSignature = await signer.signMessage(message);
+
+    console.log('Signer address:', signerAddress);
+
+    if (preferredAddress && signerAddress.toLowerCase() !== preferredAddress.toLowerCase()) {
+      throw new Error('서명한 MetaMask 계정이 VP holder 주소와 다릅니다. 같은 계정으로 다시 시도해 주세요.');
+    }
+
+    return {
+      address: signerAddress,
+      signature: nextSignature,
+    };
+  }
+
+  const signed = await signMessageWithMetaMaskConnect(message);
+
+  if (preferredAddress && signed.address && signed.address.toLowerCase() !== preferredAddress.toLowerCase()) {
+    throw new Error('서명한 MetaMask 계정이 VP holder 주소와 다릅니다. 같은 계정으로 다시 시도해 주세요.');
+  }
+
+  return signed;
 }
 
 function parseBookingQr(rawValue) {
@@ -150,24 +196,27 @@ function getInitialBookingForm() {
 }
 
 export default function VpCreatePage() {
-  const lastVp = loadLastVp(null);
   const [bookingQrText, setBookingQrText] = useState(getInitialBookingQrText);
   const [form, setForm] = useState(getInitialBookingForm);
+
   const [profile] = useState(() => {
     const currentProfile = loadHolderProfile(mockHolderProfile);
     saveHolderProfile(currentProfile);
     return currentProfile;
   });
+
   const [savedVc] = useState(() => loadVc(null));
-  const [walletAddress, setWalletAddress] = useState(() => lastVp?.walletAddress || '');
-  const [vpPayload, setVpPayload] = useState(() => lastVp?.vp || null);
-  const [signature, setSignature] = useState(() => lastVp?.signature || '');
-  const [callbackUrl, setCallbackUrl] = useState(() => lastVp?.callbackUrl || '');
+
+  const [walletAddress, setWalletAddress] = useState('');
+  const [vpPayload, setVpPayload] = useState(null);
+  const [signature, setSignature] = useState('');
+  const [callbackUrl, setCallbackUrl] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
   const [error, setError] = useState('');
 
   const signedPayload = useMemo(() => {
     if (!vpPayload || !signature) return null;
+
     return {
       vp: vpPayload,
       signature,
@@ -202,51 +251,75 @@ export default function VpCreatePage() {
     setStatusMessage('');
 
     try {
-      const ethereum = await getEthereumProvider();
+      const account = await getConnectedAddress();
 
-      const accounts = await ethereum.request({
-        method: 'eth_requestAccounts',
-      });
+      if (!account) {
+        throw new Error('MetaMask에서 계정 주소를 가져오지 못했습니다.');
+      }
 
-      setWalletAddress(accounts[0]);
-      setStatusMessage(`지갑 연결 완료: ${shortenAddress(accounts[0])}`);
+      setWalletAddress(account);
+      setVpPayload(null);
+      setSignature('');
+      setCallbackUrl('');
+
+      setStatusMessage(`지갑 연결 완료: ${shortenAddress(account)}`);
     } catch (nextError) {
       setError(nextError.message || '지갑 연결에 실패했습니다.');
     }
   };
 
-  const createVpOnly = () => {
+  const resetStoredData = () => {
+    localStorage.clear();
+
+    setWalletAddress('');
+    setVpPayload(null);
+    setSignature('');
+    setCallbackUrl('');
+    setStatusMessage('저장된 지갑/VP 데이터를 초기화했습니다. 페이지를 새로고침한 뒤 MetaMask를 다시 연결하세요.');
+    setError('');
+  };
+
+  const createVpOnly = async () => {
     setError('');
     setStatusMessage('');
 
-    if (!profile) {
-      setError('Holder profile이 없습니다.');
-      return;
+    try {
+      if (!profile) {
+        throw new Error('Holder profile이 없습니다.');
+      }
+
+      if (!savedVc) {
+        throw new Error('저장된 VC가 없습니다. 먼저 VC 저장 화면에서 VC를 저장해 주세요.');
+      }
+
+      const connectedAddress = await getConnectedAddress();
+
+      if (!connectedAddress) {
+        throw new Error('MetaMask에서 계정 주소를 가져오지 못했습니다.');
+      }
+
+      const vp = buildBookingVp({
+        profile,
+        savedVc,
+        walletAddress: connectedAddress,
+      });
+
+      setWalletAddress(connectedAddress);
+      setVpPayload(vp);
+      setSignature('');
+      setCallbackUrl('');
+
+      saveLastVp({
+        vp,
+        signature: '',
+        walletAddress: connectedAddress,
+        callbackUrl: '',
+      });
+
+      setStatusMessage(`예매용 VP JSON을 생성했습니다. Holder: ${shortenAddress(connectedAddress)}`);
+    } catch (nextError) {
+      setError(nextError.message || '예매용 VP JSON 생성에 실패했습니다.');
     }
-
-    if (!savedVc) {
-      setError('저장된 VC가 없습니다. 먼저 VC 저장 화면에서 VC를 저장해 주세요.');
-      return;
-    }
-
-    const vp = buildBookingVp({
-      profile,
-      savedVc,
-      walletAddress,
-    });
-
-    setVpPayload(vp);
-    setSignature('');
-    setCallbackUrl('');
-
-    saveLastVp({
-      vp,
-      signature: '',
-      walletAddress: walletAddress || profile.walletAddress,
-      callbackUrl: '',
-    });
-
-    setStatusMessage('예매용 VP JSON을 생성했습니다. 서명은 아직 생성하지 않았습니다.');
   };
 
   const saveSignedVp = ({ vp, nextSignature, nextWalletAddress }) => {
@@ -282,8 +355,6 @@ export default function VpCreatePage() {
     setStatusMessage('');
 
     try {
-      const ethereum = await getEthereumProvider();
-
       if (!profile) {
         throw new Error('Holder profile이 없습니다.');
       }
@@ -292,50 +363,71 @@ export default function VpCreatePage() {
         throw new Error('저장된 VC가 없습니다. 먼저 VC 저장 화면에서 VC를 저장해 주세요.');
       }
 
-      const provider = new ethers.BrowserProvider(ethereum);
-      const signer = await provider.getSigner();
-      const signerAddress = await signer.getAddress();
+      const connectedAddress = await getConnectedAddress();
+
+      if (!connectedAddress) {
+        throw new Error('MetaMask에서 계정 주소를 가져오지 못했습니다.');
+      }
 
       const vp = buildBookingVp({
         profile,
         savedVc,
-        walletAddress: signerAddress,
+        walletAddress: connectedAddress,
       });
 
-      const nextSignature = await signer.signMessage(stringifyVpForSignature(vp));
+      const message = stringifyVpForSignature(vp);
+
+      const { address: signerAddress, signature: nextSignature } = await signVpMessage(
+        message,
+        connectedAddress,
+      );
+
       saveSignedVp({
         vp,
         nextSignature,
         nextWalletAddress: signerAddress,
       });
 
-      setStatusMessage('MetaMask로 VP를 서명했습니다. 필요하면 callback URL로 C 예매 화면에 전달하세요.');
+      setStatusMessage(`MetaMask로 VP를 서명했습니다. Signer: ${shortenAddress(signerAddress)}`);
     } catch (nextError) {
       setError(nextError.message || 'VP 서명에 실패했습니다.');
     }
   };
 
-  const createMockSignature = () => {
+  const createMockSignature = async () => {
     setError('');
     setStatusMessage('');
 
     try {
-      const vp =
-        vpPayload ||
-        buildBookingVp({
-          profile,
-          savedVc,
-          walletAddress,
-        });
+      if (!profile) {
+        throw new Error('Holder profile이 없습니다.');
+      }
+
+      if (!savedVc) {
+        throw new Error('저장된 VC가 없습니다. 먼저 VC 저장 화면에서 VC를 저장해 주세요.');
+      }
+
+      const connectedAddress = walletAddress || (await getConnectedAddress());
+
+      if (!connectedAddress) {
+        throw new Error('MetaMask에서 계정 주소를 가져오지 못했습니다.');
+      }
+
+      const vp = buildBookingVp({
+        profile,
+        savedVc,
+        walletAddress: connectedAddress,
+      });
 
       const mockSignature = `mock-signature-${Date.now()}`;
+
       saveSignedVp({
         vp,
         nextSignature: mockSignature,
-        nextWalletAddress: walletAddress || profile?.walletAddress || '',
+        nextWalletAddress: connectedAddress,
       });
 
-      setStatusMessage('프로토타입용 mock signature를 생성했습니다.');
+      setStatusMessage(`프로토타입용 mock signature를 생성했습니다. Holder: ${shortenAddress(connectedAddress)}`);
     } catch (nextError) {
       setError(nextError.message || 'mock signature 생성에 실패했습니다.');
     }
@@ -383,6 +475,7 @@ export default function VpCreatePage() {
           <h3>예매 QR 처리</h3>
           <span>qrush://create-vp?eventId=...&seat=...&callback=... 형식입니다.</span>
         </div>
+
         <label>
           Booking QR deeplink
           <textarea
@@ -392,14 +485,26 @@ export default function VpCreatePage() {
             rows={4}
           />
         </label>
+
         <div className="button-row">
           <button className="primary-button" type="button" onClick={parseDeeplink}>
             예매 QR 읽기
           </button>
+
           <button className="secondary-button" type="button" onClick={connectWallet}>
             {walletAddress ? shortenAddress(walletAddress) : 'MetaMask 연결'}
           </button>
+
+          <button className="secondary-button" type="button" onClick={resetStoredData}>
+            저장값 초기화
+          </button>
         </div>
+
+        {walletAddress && (
+          <p className="success-text">
+            현재 연결 주소: {walletAddress}
+          </p>
+        )}
       </section>
 
       <div className="two-column">
@@ -443,9 +548,11 @@ export default function VpCreatePage() {
           <button className="secondary-button" type="button" onClick={createVpOnly}>
             VP JSON만 생성
           </button>
+
           <button className="primary-button" type="button" onClick={signVpWithMetaMask}>
             MetaMask로 VP 서명
           </button>
+
           <button className="secondary-button" type="button" onClick={createMockSignature}>
             mock signature 생성
           </button>
@@ -483,12 +590,15 @@ export default function VpCreatePage() {
             <button className="secondary-button" type="button" onClick={copyVpJson}>
               VP JSON 복사
             </button>
+
             <button className="secondary-button" type="button" onClick={copySignature} disabled={!signature}>
               Signature 복사
             </button>
+
             <button className="secondary-button" type="button" onClick={copyCallbackUrl} disabled={!callbackUrl}>
               callback URL 복사
             </button>
+
             <button className="primary-button" type="button" onClick={openCallbackUrl} disabled={!callbackUrl}>
               C 예매 화면으로 돌아가기
             </button>
