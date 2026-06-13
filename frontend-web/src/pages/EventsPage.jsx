@@ -24,7 +24,7 @@ export default function EventsPage({ navigate }) {
       <div className="page-header">
         <p className="eyebrow">02 Events</p>
         <h2>공연 목록</h2>
-        <p>A 서버 또는 B 컨트랙트에서 공연 정보를 받아오는 영역입니다. 지금은 mock 데이터로 동작합니다.</p>
+        <p>예매할 경기를 선택하세요.</p>
       </div>
 
       {status === 'loading' && <div className="panel empty-state">공연 목록을 불러오는 중입니다.</div>}

@@ -109,10 +109,7 @@ export default function IssuerPage() {
       <div className="page-header">
         <p className="eyebrow">01 VC Issuer</p>
         <h2>VC 발급 시뮬레이션</h2>
-        <p>
-          신원 발급 기관 역할의 어드민 화면입니다. vcHash = Poseidon(birthdate, vcSecret)를
-          계산해 A 서버에 등록하고, 같은 값을 담은 VC를 QR/JSON으로 D 앱에 전달합니다.
-        </p>
+        <p>관람객의 신원 정보를 등록하고 디지털 신분증(VC)을 발급합니다.</p>
       </div>
 
       <div className="two-column">
@@ -215,8 +212,7 @@ export default function IssuerPage() {
       {issued && (
         <section className="panel">
           <div className="section-title">
-            <h3>발급 결과 (D 앱 전달용)</h3>
-            <span>vcSecret·birthdate(YYYYMMDD)·vcHash가 proof 입력에 그대로 쓰입니다.</span>
+            <h3>발급 결과</h3>
           </div>
           <dl className="kv-list">
             <div>

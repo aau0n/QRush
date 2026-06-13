@@ -24,7 +24,7 @@ export default function TicketsPage() {
       <div className="page-header">
         <p className="eyebrow">05 Tickets</p>
         <h2>티켓 확인</h2>
-        <p>지갑 주소로 보유 티켓과 상태를 조회하는 페이지입니다.</p>
+        <p>지갑 주소로 보유한 티켓을 확인하세요.</p>
       </div>
 
       <form className="panel search-form" onSubmit={searchTickets}>
