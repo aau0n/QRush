@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import JsonPreview from '../components/JsonPreview.jsx';
 import TicketCard from '../components/TicketCard.jsx';
-import { IS_MOCK } from '../config.js';
+import { API_BASE_URL, API_BASE_URL_SOURCE, IS_MOCK } from '../config.js';
 import { mockHolderProfile, mockTickets } from '../data/mockWalletData.js';
 import {
   clearSelectedTicket,
@@ -142,7 +142,7 @@ export default function TicketWalletPage() {
       <section className="panel form-panel">
         <div className="section-title">
           <h3>블록체인 서버 티켓 동기화</h3>
-          <span>/api/ticket/by-wallet/:wallet에서 실제 예매 티켓을 불러옵니다.</span>
+          <span>{API_BASE_URL}/api/ticket/by-wallet/:wallet</span>
         </div>
 
         <label>
@@ -163,7 +163,13 @@ export default function TicketWalletPage() {
           </button>
         </div>
 
-        {IS_MOCK && <p className="error-text">frontend-app/.env에 VITE_API_BASE_URL이 없어 서버 조회가 비활성화되어 있습니다.</p>}
+        {!IS_MOCK && API_BASE_URL_SOURCE === 'auto' && (
+          <p className="hint-text">
+            .env가 없어 현재 앱 주소 기준으로 백엔드 주소를 자동 설정했습니다. 서버가 다른 PC라면
+            frontend-app/.env에 VITE_API_BASE_URL을 직접 넣어 주세요.
+          </p>
+        )}
+        {IS_MOCK && <p className="error-text">백엔드 주소를 찾을 수 없어 서버 조회가 비활성화되어 있습니다.</p>}
       </section>
 
       <section className={selectedTicket ? 'panel status-panel success' : 'panel status-panel warning'}>
