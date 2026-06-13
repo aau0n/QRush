@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import QRCodePanel from '../components/QRCodePanel.jsx';
-import { generateNonce } from '../api/qrushApi.js';
+import { generateNonce, getGateResult } from '../api/qrushApi.js';
 import { verifyProofUrl, IS_MOCK } from '../config.js';
 
 export default function GatePage() {
@@ -43,6 +43,27 @@ export default function GatePage() {
 
     return () => window.clearInterval(timer);
   }, [nonce, refreshNonce, status, expiresIn]);
+
+  // 실서버 모드: A의 결과 저장소를 nonce(hex)로 폴링해 초록/빨강 표시.
+  // 엔드포인트 미구현 시엔 decided:false라 조용히 대기 유지(mock 버튼으로 폴백).
+  useEffect(() => {
+    if (IS_MOCK || !nonce || status !== 'waiting') return undefined;
+
+    const poll = window.setInterval(async () => {
+      const result = await getGateResult(nonce);
+      if (result.decided) setStatus(result.entry ? 'allowed' : 'denied');
+    }, 1500);
+
+    return () => window.clearInterval(poll);
+  }, [nonce, status]);
+
+  // 결과 표시 후 잠시 뒤 새 nonce로 자동 리셋 — 다음 입장자를 받는다.
+  useEffect(() => {
+    if (status !== 'allowed' && status !== 'denied') return undefined;
+
+    const resetId = window.setTimeout(() => refreshNonce(), 5000);
+    return () => window.clearTimeout(resetId);
+  }, [status, refreshNonce]);
 
   // QR 페이로드는 nonce당 고정 — countdown은 넣지 않아 매초 재생성되지 않는다.
   // D 앱이 JSON 전체를 파싱: nonce(hex 참조) + nonceField(십진, proof input용)
@@ -116,8 +137,8 @@ export default function GatePage() {
         </div>
         {!IS_MOCK && (
           <p className="hint-text">
-            ※ 실서버 모드에선 D가 proof를 위 endpoint로 직접 전송합니다. 게이트 결과 실시간
-            표시는 A의 결과조회/푸시 API가 정해지면 연결하세요(아래 설명).
+            ※ D가 proof를 endpoint로 직접 보내면, 게이트는 <code>GET /api/gate/result/:nonce</code>를
+            1.5초 간격으로 폴링해 결과를 표시합니다. (미구현 시 대기 유지 — mock 버튼으로 폴백)
           </p>
         )}
       </aside>

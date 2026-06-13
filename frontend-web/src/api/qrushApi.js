@@ -127,3 +127,46 @@ export async function getTicketsByWallet(walletAddress) {
   const tickets = Array.isArray(body) ? body : body?.tickets || [];
   return { walletAddress, tickets };
 }
+
+// GET /api/gate/result/:nonce  (C 게이트 단말기 폴링)
+// A가 verify-proof 결과를 nonce(hex)로 저장해두면 게이트가 폴링해 초록/빨강 표시.
+// C가 기대하는 응답(권장 — A는 이 형태로 구현):
+//   대기:  { decided: false }            또는 HTTP 404
+//   입장:  { decided: true, entry: true,  tokenId, txHash }
+//   거부:  { decided: true, entry: false, reason }
+// ※ {status:'waiting'|'allowed'|'denied'} 형태도 호환되게 정규화한다.
+export async function getGateResult(nonce) {
+  if (IS_MOCK || !nonce) return { decided: false };
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/gate/result/${encodeURIComponent(nonce)}`, {
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (res.status === 404) return { decided: false };
+
+    const body = await res.json().catch(() => null);
+    if (!body) return { decided: false };
+
+    if (body.status) {
+      const allowed = body.status === 'allowed';
+      const denied = body.status === 'denied';
+      if (!allowed && !denied) return { decided: false };
+      return { decided: true, entry: allowed, reason: body.reason, tokenId: body.tokenId, txHash: body.txHash };
+    }
+
+    if (typeof body.entry === 'boolean') {
+      return {
+        decided: body.decided ?? true,
+        entry: body.entry,
+        reason: body.reason || body.error,
+        tokenId: body.tokenId,
+        txHash: body.txHash,
+      };
+    }
+
+    return { decided: Boolean(body.decided), entry: Boolean(body.entry), reason: body.reason };
+  } catch {
+    // 엔드포인트 미구현/네트워크 오류 — 조용히 대기 상태 유지(mock 버튼 폴백).
+    return { decided: false };
+  }
+}
