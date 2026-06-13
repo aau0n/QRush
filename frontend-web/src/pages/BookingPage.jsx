@@ -229,7 +229,7 @@ export default function BookingPage() {
       <section className="panel form-panel">
         <div className="section-title">
           <h3>VP 검증 + 티켓 발급</h3>
-          <span>D 앱에서 돌아오면 자동 제출됩니다. (수동 붙여넣기·셀프 테스트도 가능)</span>
+          <span>수동 붙여넣기</span>
         </div>
 
         <p className="disclosure-note">
