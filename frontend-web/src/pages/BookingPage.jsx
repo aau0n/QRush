@@ -30,10 +30,10 @@ export default function BookingPage() {
   const [received, setReceived] = useState(false);
   const handledCallback = useRef(false);
 
-  // 예매 QR — MetaMask 모바일 딥링크로 감싼다. 아이폰에서 그냥 http 링크면
-  // Safari로 열려 지갑 서명이 안 되므로, link.metamask.io로 감싸 MetaMask 앱 내
-  // 브라우저에서 D 웹앱(/vp)이 열리게 한다.
-  //   https://link.metamask.io/dapp/<host:port>/vp?...   (/dapp/ 뒤엔 scheme 없음)
+  // 예매 QR — D 웹앱(/vp) plain HTTP 링크. MetaMask 앱 내 QR 스캐너로 스캔한다
+  // (아이폰 기본 카메라 X). link.metamask.io/dapp은 https 강제라 로컬 http Vite
+  // 서버에서 TLS 오류가 나므로 사용하지 않음.
+  //   http://<D_APP_HOST>:5174/vp?eventId=..&seat=..&callback=<encoded C booking URL>
   // callback은 같은 WiFi에서 접근 가능한 IP여야 함(window.location.origin = 접속한 IP).
   const deeplink = useMemo(() => {
     const params = new URLSearchParams({
@@ -41,8 +41,7 @@ export default function BookingPage() {
       seat: selectedSeat,
       callback: `${window.location.origin}/booking`,
     });
-    const dappHost = DAPP_BASE_URL.replace(/^https?:\/\//, ''); // 192.168.0.20:5174
-    return `https://link.metamask.io/dapp/${dappHost}/vp?${params.toString()}`;
+    return `${DAPP_BASE_URL}/vp?${params.toString()}`;
   }, [event.id, selectedSeat]);
 
   // verify-vp → mint-ticket (수동 제출과 callback 자동 제출이 공유)
@@ -229,7 +228,7 @@ export default function BookingPage() {
       <section className="panel form-panel">
         <div className="section-title">
           <h3>VP 검증 + 티켓 발급</h3>
-          <span>D 앱에서 돌아오면 자동 제출됩니다. (수동 붙여넣기·셀프 테스트도 가능)</span>
+          <span>수동 붙여넣기</span>
         </div>
 
         <p className="disclosure-note">

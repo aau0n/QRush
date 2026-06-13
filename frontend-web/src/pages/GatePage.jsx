@@ -118,12 +118,9 @@ export default function GatePage() {
       <div className="gate-main">
         <p className="eyebrow">04 Gate Terminal</p>
         <h2>게이트 단말기</h2>
-        <p>개인정보를 표시·전송하지 않고, 영지식 증명으로 입장 자격만 검증합니다.</p>
-
-        <div className="privacy-badge">🔒 이 단말기는 입장자의 신원을 저장·표시하지 않습니다</div>
 
         <div className="gate-qr">
-          <QRCodePanel label="D 앱에서 스캔할 입장 nonce QR" value={qrPayload} />
+          <QRCodePanel label="스캔용 입장 nonce QR" value={qrPayload} />
           <div className="countdown">
             <span>{loading ? '--' : countdown}</span>
             <small>초 후 새 nonce</small>
