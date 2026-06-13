@@ -1,6 +1,7 @@
 import { mockEvents, mockTickets } from '../data/mockData.js';
 import { API_BASE_URL, IS_MOCK } from '../config.js';
 import { randomId } from '../utils/hash.js';
+import { getAddress } from 'ethers';
 
 const delay = (ms = 350) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -82,9 +83,10 @@ export async function verifyVp(vp, signature) {
 // POST /api/ticket/mint-ticket  (C 웹)
 // body { eventId, seatId, buyerWallet } → { success, ticket:{tokenId,...}, txHash }
 export async function mintTicket({ eventId, seatId, buyerWallet }) {
+  const normalizedBuyerWallet = normalizeWalletAddress(buyerWallet);
   const body = await request(
     '/api/ticket/mint-ticket',
-    { method: 'POST', body: JSON.stringify({ eventId, seatId, buyerWallet }) },
+    { method: 'POST', body: JSON.stringify({ eventId, seatId, buyerWallet: normalizedBuyerWallet }) },
     () => ({
       success: true,
       ticket: { tokenId: Math.floor(100000 + Math.random() * 900000).toString() },
@@ -116,8 +118,22 @@ export async function generateNonce() {
   };
 }
 
-// GET /api/ticket/by-wallet/:wallet  (C 티켓 확인 페이지)
-export async function getTicketsByWallet(walletAddress) {
+function normalizeWalletAddress(walletAddress) {
+  const trimmed = String(walletAddress || '').trim();
+
+  try {
+    return getAddress(trimmed);
+  } catch {
+    return trimmed;
+  }
+}
+
+function getWalletCandidates(walletAddress) {
+  const normalized = normalizeWalletAddress(walletAddress);
+  return [...new Set([walletAddress, normalized, normalized.toLowerCase()].filter(Boolean))];
+}
+
+async function requestTicketsByWallet(walletAddress) {
   const body = await request(
     `/api/ticket/by-wallet/${encodeURIComponent(walletAddress)}`,
     { method: 'GET' },
@@ -127,7 +143,27 @@ export async function getTicketsByWallet(walletAddress) {
   );
 
   const tickets = Array.isArray(body) ? body : body?.tickets || [];
-  return { walletAddress, tickets };
+  return tickets;
+}
+
+// GET /api/ticket/by-wallet/:wallet  (C 티켓 확인 페이지)
+export async function getTicketsByWallet(walletAddress) {
+  let lastError = null;
+
+  for (const candidate of getWalletCandidates(walletAddress)) {
+    try {
+      const tickets = await requestTicketsByWallet(candidate);
+      if (tickets.length > 0) return { walletAddress: candidate, tickets };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (lastError) {
+    throw lastError;
+  }
+
+  return { walletAddress: normalizeWalletAddress(walletAddress), tickets: [] };
 }
 
 // GET /api/gate/result/:nonce  (C 게이트 단말기 폴링)

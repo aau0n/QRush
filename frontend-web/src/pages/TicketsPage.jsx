@@ -13,18 +13,23 @@ function getSeatLabel(ticket) {
 
 export default function TicketsPage() {
   const [walletAddress, setWalletAddress] = useState('');
+  const [resolvedWalletAddress, setResolvedWalletAddress] = useState('');
   const [tickets, setTickets] = useState([]);
   const [status, setStatus] = useState('idle');
+  const [errorMessage, setErrorMessage] = useState('');
 
   const searchTickets = async (event) => {
     event.preventDefault();
     setStatus('loading');
+    setErrorMessage('');
 
     try {
       const result = await getTicketsByWallet(walletAddress);
+      setResolvedWalletAddress(result.walletAddress);
       setTickets(result.tickets);
       setStatus('done');
-    } catch {
+    } catch (error) {
+      setErrorMessage(error.message || '티켓 조회에 실패했습니다.');
       setStatus('error');
     }
   };
@@ -53,13 +58,13 @@ export default function TicketsPage() {
         </button>
       </form>
 
-      {status === 'error' && <div className="panel error-text">티켓 조회에 실패했습니다.</div>}
+      {status === 'error' && <div className="panel error-text">{errorMessage}</div>}
 
       {status === 'done' && (
         <section className="panel">
           <div className="section-title">
             <h3>보유 티켓</h3>
-            <span>{walletAddress}</span>
+            <span>{resolvedWalletAddress || walletAddress}</span>
           </div>
 
           <div className="ticket-table" role="table" aria-label="보유 티켓 목록">
@@ -69,16 +74,25 @@ export default function TicketsPage() {
               <span>좌석</span>
               <span>상태</span>
             </div>
-            {tickets.map((ticket) => (
-              <div className="ticket-row" key={ticket.tokenId} role="row">
-                <span>{ticket.tokenId}</span>
-                <span>{getEventTitle(ticket)}</span>
-                <span>{getSeatLabel(ticket)}</span>
-                <span className={ticket.status === 'VALID' ? 'badge valid' : 'badge used'}>
-                  {ticket.status}
-                </span>
+            {tickets.length > 0 ? (
+              tickets.map((ticket) => (
+                <div className="ticket-row" key={ticket.tokenId} role="row">
+                  <span>{ticket.tokenId}</span>
+                  <span>{getEventTitle(ticket)}</span>
+                  <span>{getSeatLabel(ticket)}</span>
+                  <span className={ticket.status === 'VALID' ? 'badge valid' : 'badge used'}>
+                    {ticket.status}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <div className="ticket-row" role="row">
+                <span>-</span>
+                <span>조회된 티켓이 없습니다</span>
+                <span>-</span>
+                <span>EMPTY</span>
               </div>
-            ))}
+            )}
           </div>
         </section>
       )}

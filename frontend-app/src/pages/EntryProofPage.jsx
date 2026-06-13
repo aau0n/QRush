@@ -5,11 +5,14 @@ import { generateEntryProof } from '../services/zkpProof.js';
 import {
   loadHolderProfile,
   loadLastEntryProof,
+  loadLastVp,
   loadSelectedTicket,
   loadTickets,
   loadVc,
   saveLastEntryProof,
+  saveTickets,
 } from '../services/storage.js';
+import { fetchTicketsByWallet } from '../services/ticketSync.js';
 
 const sampleGateChallenge = {
   type: 'QRushGateChallenge',
@@ -41,6 +44,10 @@ function getInitialSelectedTokenId(tickets) {
     tickets[0]?.tokenId ||
     ''
   );
+}
+
+function getInitialWalletAddress(profile) {
+  return loadLastVp(null)?.walletAddress || profile?.walletAddress || '';
 }
 
 function getInitialChallengeText() {
@@ -136,7 +143,8 @@ async function buildProofPayload({ challenge, ticket, profile, savedVc }) {
 export default function EntryProofPage() {
   const [profile] = useState(() => loadHolderProfile(mockHolderProfile));
   const [savedVc] = useState(() => loadVc(null));
-  const [tickets] = useState(() => loadTickets([]));
+  const [walletAddress, setWalletAddress] = useState(() => getInitialWalletAddress(profile));
+  const [tickets, setTickets] = useState(() => loadTickets([]));
   const [selectedTokenId, setSelectedTokenId] = useState(() =>
     getInitialSelectedTokenId(loadTickets([])),
   );
@@ -148,6 +156,7 @@ export default function EntryProofPage() {
   const [error, setError] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSyncingTickets, setIsSyncingTickets] = useState(false);
 
   const fillSampleChallenge = () => {
     setChallengeText(JSON.stringify(sampleGateChallenge, null, 2));
@@ -166,6 +175,35 @@ export default function EntryProofPage() {
       setStatusMessage('Gate Challenge를 정상적으로 읽었습니다.');
     } catch (nextError) {
       setError(nextError.message || 'Gate Challenge 파싱에 실패했습니다.');
+    }
+  };
+
+  const syncTickets = async () => {
+    setError('');
+    setStatusMessage('');
+    setIsSyncingTickets(true);
+
+    try {
+      const syncedTickets = await fetchTicketsByWallet(walletAddress);
+      saveTickets(syncedTickets);
+      setTickets(syncedTickets);
+
+      const nextSelectedTokenId =
+        syncedTickets.find((ticket) => ticket.status === 'VALID')?.tokenId ||
+        syncedTickets[0]?.tokenId ||
+        '';
+
+      setSelectedTokenId(nextSelectedTokenId);
+
+      setStatusMessage(
+        nextSelectedTokenId
+          ? `서버에서 티켓 ${syncedTickets.length}개를 동기화하고 #${nextSelectedTokenId}를 선택했습니다.`
+          : '서버에서 조회된 티켓이 없습니다. 예매에 사용한 MetaMask 주소인지 확인해 주세요.',
+      );
+    } catch (nextError) {
+      setError(nextError.message || '티켓 동기화에 실패했습니다.');
+    } finally {
+      setIsSyncingTickets(false);
     }
   };
 
@@ -394,6 +432,15 @@ export default function EntryProofPage() {
         </div>
 
         <label>
+          티켓 조회 지갑 주소
+          <input
+            value={walletAddress}
+            onChange={(event) => setWalletAddress(event.target.value)}
+            placeholder="0x..."
+          />
+        </label>
+
+        <label>
           사용할 티켓
           <select value={selectedTokenId} onChange={(event) => setSelectedTokenId(event.target.value)}>
             {tickets.map((ticket) => (
@@ -419,6 +466,14 @@ export default function EntryProofPage() {
         </div>
 
         <div className="button-row">
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={syncTickets}
+            disabled={isSyncingTickets || !walletAddress}
+          >
+            {isSyncingTickets ? '티켓 동기화 중' : '서버에서 티켓 동기화'}
+          </button>
           <button className="secondary-button" type="button" onClick={createEntryProof} disabled={isGenerating}>
             {isGenerating ? 'proof 생성 중' : '입장 proof 생성'}
           </button>

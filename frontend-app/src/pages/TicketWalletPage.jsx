@@ -68,6 +68,19 @@ export default function TicketWalletPage() {
       saveTickets(syncedTickets);
       setTickets(syncedTickets);
 
+      const nextSelectedTicket =
+        syncedTickets.find((ticket) => ticket.status === 'VALID') ||
+        syncedTickets[0] ||
+        null;
+
+      if (nextSelectedTicket) {
+        saveSelectedTicket(nextSelectedTicket);
+        setSelectedTicket(nextSelectedTicket);
+      } else {
+        clearSelectedTicket();
+        setSelectedTicket(null);
+      }
+
       const nextProfile = {
         ...profile,
         walletAddress,
@@ -75,12 +88,11 @@ export default function TicketWalletPage() {
       saveHolderProfile(nextProfile);
       setProfile(nextProfile);
 
-      if (selectedTicket && !syncedTickets.some((ticket) => ticket.tokenId === selectedTicket.tokenId)) {
-        clearSelectedTicket();
-        setSelectedTicket(null);
-      }
-
-      setStatusMessage(`블록체인 서버에서 티켓 ${syncedTickets.length}개를 동기화했습니다.`);
+      setStatusMessage(
+        nextSelectedTicket
+          ? `블록체인 서버에서 티켓 ${syncedTickets.length}개를 동기화하고 #${nextSelectedTicket.tokenId}를 선택했습니다.`
+          : '블록체인 서버에서 조회된 티켓이 없습니다. 예매에 사용한 MetaMask 주소인지 확인해 주세요.',
+      );
     } catch (nextError) {
       setError(nextError.message || '티켓 동기화에 실패했습니다.');
     } finally {
