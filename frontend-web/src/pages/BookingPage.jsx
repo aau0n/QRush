@@ -174,7 +174,7 @@ export default function BookingPage() {
       <div className="page-header">
         <p className="eyebrow">03 Booking</p>
         <h2>좌석 선택과 예매 처리</h2>
-        <p>QR을 D 앱으로 스캔해 VP 서명을 받고, A 서버 검증 후 티켓 mint를 호출합니다.</p>
+        <p>좌석을 선택하고 QR로 예매를 진행하세요.</p>
       </div>
 
       <div className="two-column wide-left">
