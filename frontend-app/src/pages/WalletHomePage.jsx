@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import JsonPreview from '../components/JsonPreview.jsx';
 import { mockHolderProfile, mockTickets } from '../data/mockWalletData.js';
 import {
@@ -15,22 +15,9 @@ function shortenAddress(address) {
 }
 
 export default function WalletHomePage() {
-  const [profile, setProfile] = useState(null);
-  const [savedVc, setSavedVc] = useState(null);
-  const [tickets, setTickets] = useState([]);
-
-  useEffect(() => {
-    const currentProfile = loadHolderProfile(mockHolderProfile);
-    const currentTickets = loadTickets(mockTickets);
-    const currentVc = loadVc(null);
-
-    setProfile(currentProfile);
-    setTickets(currentTickets);
-    setSavedVc(currentVc);
-
-    saveHolderProfile(currentProfile);
-    saveTickets(currentTickets);
-  }, []);
+  const [profile, setProfile] = useState(() => loadHolderProfile(mockHolderProfile));
+  const [savedVc, setSavedVc] = useState(() => loadVc(null));
+  const [tickets, setTickets] = useState(() => loadTickets(mockTickets));
 
   const resetDemoData = () => {
     saveHolderProfile(mockHolderProfile);

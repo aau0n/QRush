@@ -1,14 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { ethers } from 'ethers';
 import JsonPreview from '../components/JsonPreview.jsx';
 import { mockHolderProfile } from '../data/mockWalletData.js';
-import {
-  loadHolderProfile,
-  loadLastVp,
-  loadVc,
-  saveHolderProfile,
-  saveLastVp,
-} from '../services/storage.js';
+import { loadHolderProfile, loadLastVp, loadVc, saveHolderProfile, saveLastVp } from '../services/storage.js';
 
 const initialForm = {
   eventId: 'event-001',
@@ -21,43 +15,69 @@ function shortenAddress(address) {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
-function buildBookingVp({ form, profile, savedVc, walletAddress }) {
+function normalizeBirthdate(value) {
+  return String(value || '').replaceAll('-', '').trim();
+}
+
+function calculateAge(birthdate) {
+  const normalized = normalizeBirthdate(birthdate);
+  if (!/^\d{8}$/.test(normalized)) return null;
+
+  const year = Number(normalized.slice(0, 4));
+  const month = Number(normalized.slice(4, 6));
+  const day = Number(normalized.slice(6, 8));
+  const today = new Date();
+  let age = today.getFullYear() - year;
+
+  if (today.getMonth() + 1 < month || (today.getMonth() + 1 === month && today.getDate() < day)) {
+    age -= 1;
+  }
+
+  return age;
+}
+
+function getCredentialSubject(savedVc) {
+  return savedVc?.vc?.credentialSubject || {};
+}
+
+function getIssuer(savedVc) {
+  return savedVc?.issuer || savedVc?.vc?.issuer || '';
+}
+
+function buildBookingVp({ profile, savedVc, walletAddress }) {
+  const subject = getCredentialSubject(savedVc);
+  const age = subject.age ?? calculateAge(subject.birthdate);
+
   return {
-    type: 'QRushBookingVP',
-    eventId: form.eventId,
-    seat: form.seat,
-    audience: walletAddress || profile.walletAddress,
-    holderDid: profile.holderDid,
+    holder: walletAddress || profile.walletAddress,
+    did: subject.id || profile.holderDid,
+    issuer: getIssuer(savedVc),
     vcHash: savedVc?.vcHash || null,
-    createdAt: new Date().toISOString(),
+    claims: {
+      name: subject.name || '',
+      age,
+    },
   };
 }
 
+function stringifyVpForSignature(vp) {
+  return JSON.stringify(vp);
+}
+
 export default function VpCreatePage() {
+  const lastVp = loadLastVp(null);
   const [form, setForm] = useState(initialForm);
-  const [profile, setProfile] = useState(null);
-  const [savedVc, setSavedVc] = useState(null);
-  const [walletAddress, setWalletAddress] = useState('');
-  const [vpPayload, setVpPayload] = useState(null);
-  const [signature, setSignature] = useState('');
+  const [profile] = useState(() => {
+    const currentProfile = loadHolderProfile(mockHolderProfile);
+    saveHolderProfile(currentProfile);
+    return currentProfile;
+  });
+  const [savedVc] = useState(() => loadVc(null));
+  const [walletAddress, setWalletAddress] = useState(() => lastVp?.walletAddress || '');
+  const [vpPayload, setVpPayload] = useState(() => lastVp?.vp || null);
+  const [signature, setSignature] = useState(() => lastVp?.signature || '');
   const [statusMessage, setStatusMessage] = useState('');
   const [error, setError] = useState('');
-
-  useEffect(() => {
-    const currentProfile = loadHolderProfile(mockHolderProfile);
-    const currentVc = loadVc(null);
-    const lastVp = loadLastVp(null);
-
-    saveHolderProfile(currentProfile);
-    setProfile(currentProfile);
-    setSavedVc(currentVc);
-
-    if (lastVp) {
-      setVpPayload(lastVp.vp);
-      setSignature(lastVp.signature || '');
-      setWalletAddress(lastVp.walletAddress || '');
-    }
-  }, []);
 
   const updateForm = (event) => {
     setForm((current) => ({
@@ -72,7 +92,7 @@ export default function VpCreatePage() {
 
     try {
       const raw = window.prompt(
-        'C 웹에서 생성된 deeplink를 붙여넣어 주세요.\n예: qrush://create-vp?eventId=event-001&seat=A3&callback=http://localhost:5173/booking',
+        'C 웹에서 생성한 deeplink를 붙여넣어 주세요.\n예: qrush://create-vp?eventId=event-001&seat=A3&callback=http://localhost:5173/booking',
       );
 
       if (!raw) return;
@@ -128,12 +148,11 @@ export default function VpCreatePage() {
     }
 
     if (!savedVc) {
-      setError('저장된 VC가 없습니다. 먼저 VC 저장 화면에서 VC를 저장해 주세요.');
+      setError('저장된 VC가 없습니다. 먼저 VC 저장 화면에서 VC를 저장해주세요.');
       return;
     }
 
     const vp = buildBookingVp({
-      form,
       profile,
       savedVc,
       walletAddress,
@@ -148,7 +167,7 @@ export default function VpCreatePage() {
       walletAddress: walletAddress || profile.walletAddress,
     });
 
-    setStatusMessage('예매용 VP JSON을 생성했습니다. 아직 서명은 생성되지 않았습니다.');
+    setStatusMessage('예매용 VP JSON을 생성했습니다. 아직 서명은 생성하지 않았습니다.');
   };
 
   const signVpWithMetaMask = async () => {
@@ -165,7 +184,7 @@ export default function VpCreatePage() {
       }
 
       if (!savedVc) {
-        throw new Error('저장된 VC가 없습니다. 먼저 VC 저장 화면에서 VC를 저장해 주세요.');
+        throw new Error('저장된 VC가 없습니다. 먼저 VC 저장 화면에서 VC를 저장해주세요.');
       }
 
       const provider = new ethers.BrowserProvider(window.ethereum);
@@ -173,14 +192,12 @@ export default function VpCreatePage() {
       const signerAddress = await signer.getAddress();
 
       const vp = buildBookingVp({
-        form,
         profile,
         savedVc,
         walletAddress: signerAddress,
       });
 
-      const vpJson = JSON.stringify(vp, null, 2);
-      const nextSignature = await signer.signMessage(vpJson);
+      const nextSignature = await signer.signMessage(stringifyVpForSignature(vp));
 
       setWalletAddress(signerAddress);
       setVpPayload(vp);
@@ -203,7 +220,7 @@ export default function VpCreatePage() {
     setStatusMessage('');
 
     if (!vpPayload) {
-      setError('먼저 VP JSON을 생성해 주세요.');
+      setError('먼저 VP JSON을 생성해주세요.');
       return;
     }
 
@@ -239,8 +256,8 @@ export default function VpCreatePage() {
         <p className="eyebrow">03 VP Create</p>
         <h2>예매용 VP 생성</h2>
         <p>
-          C 웹의 예매 요청(eventId, seat)을 받아 저장된 VC를 기반으로 VP를 생성하고,
-          사용자의 지갑으로 서명합니다.
+          C 웹의 예매 요청을 받고 저장된 VC를 기반으로 VP를 생성한 뒤, 사용자의 지갑으로
+          JSON.stringify(vp) 원문을 서명합니다.
         </p>
       </div>
 
@@ -248,7 +265,7 @@ export default function VpCreatePage() {
         <section className="panel form-panel">
           <div className="section-title">
             <h3>예매 요청 정보</h3>
-            <span>C 웹 BookingPage의 deeplink 값과 맞춰지는 정보입니다.</span>
+            <span>C BookingPage deeplink 값과 맞춰지는 정보입니다.</span>
           </div>
 
           <label>
@@ -279,11 +296,7 @@ export default function VpCreatePage() {
         <section className={savedVc ? 'panel status-panel success' : 'panel status-panel warning'}>
           <div>
             <h3>{savedVc ? 'VC 사용 가능' : 'VC 없음'}</h3>
-            <p>
-              {savedVc
-                ? `VC Hash: ${savedVc.vcHash}`
-                : 'VP 생성을 위해 먼저 VC 저장 화면에서 VC를 저장해야 합니다.'}
-            </p>
+            <p>{savedVc ? `VC Hash: ${savedVc.vcHash}` : 'VP 생성을 위해 먼저 VC를 저장해야 합니다.'}</p>
           </div>
         </section>
       </div>
@@ -314,7 +327,7 @@ export default function VpCreatePage() {
         <section className="panel form-panel">
           <div className="section-title">
             <h3>C 웹으로 전달할 값</h3>
-            <span>BookingPage의 VP JSON / Signature 입력칸에 넣는 값입니다.</span>
+            <span>VP 키 순서는 holder, did, issuer, vcHash, claims입니다.</span>
           </div>
 
           <label>

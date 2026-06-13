@@ -1,24 +1,22 @@
-import { buildPoseidon } from 'circomlibjs';
 import * as snarkjs from 'snarkjs';
 
 const WASM_PATH = '/zkp/ticket_verify.wasm';
 const ZKEY_PATH = '/zkp/ticket_verify_final.zkey';
 
-let poseidonPromise = null;
-
-function getPoseidon() {
-  if (!poseidonPromise) {
-    poseidonPromise = buildPoseidon();
-  }
-  return poseidonPromise;
-}
-
-function toFieldString(value) {
+function toFieldString(value, label) {
   if (value === null || value === undefined || value === '') {
-    throw new Error('ZKP input value is missing.');
+    throw new Error(`${label} is required.`);
   }
 
-  return BigInt(value).toString();
+  try {
+    const normalized = BigInt(value).toString();
+    if (normalized.startsWith('-')) {
+      throw new Error();
+    }
+    return normalized;
+  } catch {
+    throw new Error(`${label} must be a field decimal string.`);
+  }
 }
 
 export function todayYYYYMMDD() {
@@ -38,63 +36,25 @@ export function normalizeBirthdate(value) {
   return normalized;
 }
 
-export function nonceHexToField(nonceHex) {
-  const cleanNonce = String(nonceHex || '')
-    .trim()
-    .replace(/^0x/i, '');
-
-  if (!/^[0-9a-fA-F]+$/.test(cleanNonce)) {
-    throw new Error('Gate nonce must be a hex string.');
-  }
-
-  return BigInt(`0x${cleanNonce}`).toString();
-}
-
 export function getBirthdateFromVc(savedVc) {
   return normalizeBirthdate(savedVc?.vc?.credentialSubject?.birthdate || savedVc?.birthdate);
 }
 
-export function getVcSecret(savedVc) {
-  return (
-    savedVc?.vcSecret ||
-    savedVc?.vc?.vcSecret ||
-    savedVc?.vc?.credentialSubject?.vcSecret ||
-    savedVc?.vc?.credentialSubject?.vc_secret ||
-    savedVc?.vc?.credentialSubject?.salt ||
-    null
-  );
+export function getVcHashFromVc(savedVc) {
+  return toFieldString(savedVc?.vcHash || savedVc?.vc?.vcHash || savedVc?.vc?.credentialSubject?.vcHash, 'vcHash');
 }
 
-export async function poseidonHash(values) {
-  const poseidon = await getPoseidon();
-  const F = poseidon.F;
-  return F.toString(poseidon(values.map((value) => BigInt(toFieldString(value)))));
+export function getNonceFromChallenge(challenge) {
+  return toFieldString(challenge?.nonce, 'Gate nonce');
 }
 
 export async function buildEntryProofInput({ challenge, ticket, savedVc }) {
-  const birthdate = getBirthdateFromVc(savedVc);
-  const vcSecret = getVcSecret(savedVc);
-
-  if (!vcSecret) {
-    throw new Error('VC payload needs vcSecret to generate the entry proof.');
-  }
-
-  const tokenId = String(ticket.tokenId);
-  const tokenIdHash = await poseidonHash([tokenId]);
-  const vcHash = await poseidonHash([birthdate, vcSecret]);
-
-  if (savedVc?.vcHash && String(savedVc.vcHash) !== vcHash) {
-    throw new Error('Saved vcHash does not match Poseidon(birthdate, vcSecret).');
-  }
-
   return {
-    birthdate,
-    tokenId,
-    vcSecret: toFieldString(vcSecret),
-    nonce: nonceHexToField(challenge.nonce),
+    birthdate: getBirthdateFromVc(savedVc),
+    vcHash: getVcHashFromVc(savedVc),
+    nonce: getNonceFromChallenge(challenge),
+    tokenId: toFieldString(ticket?.tokenId, 'tokenId'),
     currentDate: todayYYYYMMDD(),
-    tokenIdHash,
-    vcHash,
   };
 }
 

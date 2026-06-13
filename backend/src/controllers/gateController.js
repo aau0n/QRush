@@ -78,6 +78,9 @@ exports.verifyProof = async (req, res) => {
     if (BigInt(ps.tokenId) !== BigInt(tokenId)) {
       return res.status(401).json({ success: false, entry: false, error: "Proof not bound to this tokenId" });
     }
+    if (vcHash != null && BigInt(ps.vcHash) !== BigInt(vcHash)) {
+      return res.status(401).json({ success: false, entry: false, error: "Proof not bound to this vcHash" });
+    }
     if (String(ps.isAdult) !== "1") {
       return res.status(401).json({ success: false, entry: false, error: "Not adult" });
     }
@@ -108,7 +111,7 @@ exports.verifyProof = async (req, res) => {
     }
 
     // 7. 체인 useTicket (실제 모드면 여기서 nonce TTL/ZKP 재검증됨)
-    const tx = await blockchain.useTicketNFT(tokenId, ps.nonce, ps.vcHash, proof);
+    const tx = await blockchain.useTicketNFT(tokenId, ps.nonce, ps.vcHash, ps.currentDate, proof);
     ticket.status = "USED";
     await ticket.save();
 

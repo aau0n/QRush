@@ -9,7 +9,7 @@
  *   VCRegistry.registerVC(bytes32) / isValidVC(bytes32) view → bool
  *   TicketNFT.mintTicket(address,uint256,uint256) → uint256
  *   TicketNFT.registerNonce(uint256)  [onlyOwner]
- *   TicketNFT.useTicket(uint256 tokenId, uint256 nonce, bytes32 vcHash, uint[2] pA, uint[2][2] pB, uint[2] pC)
+ *   TicketNFT.useTicket(uint256 tokenId, uint256 nonce, bytes32 vcHash, uint256 currentDate, uint[2] pA, uint[2][2] pB, uint[2] pC)
  *   TicketNFT.getTicket(uint256) / ownerOf(uint256)
  */
 const { ethers } = require("ethers");
@@ -26,7 +26,7 @@ const VC_REGISTRY_ABI = [
 const TICKET_NFT_ABI = [
   "function mintTicket(address to, uint256 eventId, uint256 seatId) returns (uint256)",
   "function registerNonce(uint256 nonce)",
-  "function useTicket(uint256 tokenId, uint256 nonce, bytes32 vcHash, uint256[2] pA, uint256[2][2] pB, uint256[2] pC)",
+  "function useTicket(uint256 tokenId, uint256 nonce, bytes32 vcHash, uint256 currentDate, uint256[2] pA, uint256[2][2] pB, uint256[2] pC)",
   "function ownerOf(uint256 tokenId) view returns (address)",
   "event TicketMinted(uint256 indexed tokenId, address indexed to, uint256 eventId, uint256 seatId)"
 ];
@@ -108,9 +108,9 @@ exports.registerNonce = async (nonceField) => {
 
 /**
  * 티켓 사용 (B의 useTicket)
- * @param contractPubSignals [vcHash, nonce, tokenId, isAdult]
+ * v2 pubSignals order is [isAdult, vcHash, nonce, tokenId, currentDate].
  */
-exports.useTicketNFT = async (tokenId, nonceField, vcHash, proof) => {
+exports.useTicketNFT = async (tokenId, nonceField, vcHash, currentDate, proof) => {
   if (MOCK) {
     const created = mockState.registeredNonces.get(String(nonceField));
     if (!created) throw new Error("Nonce not registered on-chain (mock)");
@@ -129,7 +129,7 @@ exports.useTicketNFT = async (tokenId, nonceField, vcHash, proof) => {
     [proof.pi_b[1][1], proof.pi_b[1][0]]
   ];
   const pC = [proof.pi_c[0], proof.pi_c[1]];
-  const tx = await ticketNFT.useTicket(tokenId, BigInt(nonceField), toBytes32(vcHash), pA, pB, pC);
+  const tx = await ticketNFT.useTicket(tokenId, BigInt(nonceField), toBytes32(vcHash), BigInt(currentDate), pA, pB, pC);
   await tx.wait();
   return { txHash: tx.hash };
 };

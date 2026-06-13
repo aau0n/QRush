@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import JsonPreview from '../components/JsonPreview.jsx';
 import { sampleVcPayload } from '../data/mockWalletData.js';
 import { clearVc, loadVc, saveVc } from '../services/storage.js';
@@ -17,13 +17,9 @@ function getSubjectId(payload) {
 
 export default function VcStorePage() {
   const [vcText, setVcText] = useState('');
-  const [savedVc, setSavedVc] = useState(null);
+  const [savedVc, setSavedVc] = useState(() => loadVc(null));
   const [statusMessage, setStatusMessage] = useState('');
   const [error, setError] = useState('');
-
-  useEffect(() => {
-    setSavedVc(loadVc(null));
-  }, []);
 
   const fillSample = () => {
     setVcText(JSON.stringify(sampleVcPayload, null, 2));

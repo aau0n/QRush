@@ -13,9 +13,11 @@ import {
 
 const sampleGateChallenge = {
   type: 'QRushGateChallenge',
-  nonce: 'a1b21234567890abcdef',
-  endpoint: '/verify-proof',
+  nonce: '763585835955600474492399',
+  nonceHex: 'a1b21234567890abcdef',
+  endpoint: '/api/gate/verify-proof',
   expiresIn: 30,
+  chainTx: '0xsample',
 };
 
 function getInitialSelectedTokenId(tickets) {
@@ -41,20 +43,22 @@ async function buildProofPayload({ challenge, ticket, profile, savedVc }) {
 
   return {
     type: 'QRushEntryProof',
-    tokenId: ticket.tokenId,
+    tokenId: input.tokenId,
     holderDid: profile.holderDid,
     walletAddress: profile.walletAddress,
     vcHash: input.vcHash,
-    nonce: challenge.nonce,
-    gateEndpoint: challenge.endpoint || '/verify-proof',
+    nonce: input.nonce,
+    nonceHex: challenge.nonceHex || null,
+    gateEndpoint: challenge.endpoint || '/api/gate/verify-proof',
     proof,
     publicSignals,
     proofInput: input,
     verifyProofBody: {
       proof,
       publicSignals,
-      nonce: challenge.nonce,
-      tokenId: ticket.tokenId,
+      nonce: input.nonce,
+      tokenId: input.tokenId,
+      vcHash: input.vcHash,
     },
     createdAt: new Date().toISOString(),
   };
@@ -94,6 +98,12 @@ export default function EntryProofPage() {
 
       if (!parsed.nonce) {
         throw new Error('Gate Challenge에 nonce가 없습니다.');
+      }
+
+      try {
+        BigInt(parsed.nonce);
+      } catch {
+        throw new Error('Gate Challenge nonce는 field 십진수 문자열이어야 합니다.');
       }
 
       setParsedChallenge(parsed);
@@ -156,6 +166,7 @@ export default function EntryProofPage() {
       publicSignals: entryProof.publicSignals,
       nonce: entryProof.nonce,
       tokenId: entryProof.tokenId,
+      vcHash: entryProof.vcHash,
     };
 
     await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
@@ -168,8 +179,8 @@ export default function EntryProofPage() {
         <p className="eyebrow">04 Entry Proof</p>
         <h2>입장 증명 생성</h2>
         <p>
-          C의 Gate 화면에서 nonce QR payload를 입력받고, 사용 가능한 티켓과 VC를 기반으로
-          입장 검증용 Groth16 proof payload를 생성합니다.
+          C의 Gate 화면 QR payload를 입력받고, 사용 가능한 티켓과 VC를 기반으로 입장 검증용
+          Groth16 proof payload를 생성합니다.
         </p>
       </div>
 
@@ -177,7 +188,7 @@ export default function EntryProofPage() {
         <section className="panel form-panel">
           <div className="section-title">
             <h3>Gate QR Payload 입력</h3>
-            <span>C Gate 화면 QR을 스캔한 결과를 붙여넣는 영역입니다.</span>
+            <span>C Gate 화면 QR을 스캔한 JSON 전체를 붙여넣는 영역입니다.</span>
           </div>
 
           <label>
@@ -185,7 +196,7 @@ export default function EntryProofPage() {
             <textarea
               value={challengeText}
               onChange={(event) => setChallengeText(event.target.value)}
-              placeholder='{"type":"QRushGateChallenge","nonce":"...","endpoint":"/verify-proof","expiresIn":30}'
+              placeholder='{"type":"QRushGateChallenge","nonce":"field decimal","nonceHex":"...","endpoint":"/api/gate/verify-proof","expiresIn":30}'
               rows={10}
             />
           </label>
@@ -207,7 +218,7 @@ export default function EntryProofPage() {
               </div>
               <div>
                 <span>endpoint</span>
-                <strong>{parsedChallenge.endpoint || '/verify-proof'}</strong>
+                <strong>{parsedChallenge.endpoint || '/api/gate/verify-proof'}</strong>
               </div>
             </div>
           )}
