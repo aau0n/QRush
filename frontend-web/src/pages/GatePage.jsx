@@ -4,7 +4,8 @@ import { generateNonce } from '../api/qrushApi.js';
 import { verifyProofUrl, IS_MOCK } from '../config.js';
 
 export default function GatePage() {
-  const [nonce, setNonce] = useState('');
+  const [nonce, setNonce] = useState(''); // hex (표시/참조용)
+  const [nonceField, setNonceField] = useState(''); // 십진 field — D가 proof input에 사용
   const [expiresIn, setExpiresIn] = useState(30); // nonce 1개의 유효시간(고정)
   const [countdown, setCountdown] = useState(30); // 화면 표시용
   const [status, setStatus] = useState('waiting');
@@ -14,6 +15,7 @@ export default function GatePage() {
     setLoading(true);
     const result = await generateNonce();
     setNonce(result.nonce);
+    setNonceField(result.nonceField || '');
     setExpiresIn(result.expiresIn || 30);
     setCountdown(result.expiresIn || 30);
     setStatus('waiting');
@@ -43,16 +45,18 @@ export default function GatePage() {
   }, [nonce, refreshNonce, status, expiresIn]);
 
   // QR 페이로드는 nonce당 고정 — countdown은 넣지 않아 매초 재생성되지 않는다.
-  // D 앱이 그대로 파싱: nonce(hex) + proof를 POST할 절대 endpoint.
+  // D 앱이 JSON 전체를 파싱: nonce(hex 참조) + nonceField(십진, proof input용)
+  // + proof를 POST할 절대 endpoint.
   const qrPayload = useMemo(
     () =>
       JSON.stringify({
         type: 'QRushGateChallenge',
-        nonce,
+        nonce, // hex
+        nonceField, // 십진 field — D는 이 값을 proof의 nonce input으로 사용
         endpoint: verifyProofUrl(),
         expiresIn,
       }),
-    [expiresIn, nonce],
+    [expiresIn, nonce, nonceField],
   );
 
   return (
