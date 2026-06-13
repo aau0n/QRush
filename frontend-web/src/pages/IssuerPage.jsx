@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import QRCodePanel from '../components/QRCodePanel.jsx';
 import { registerVcHash } from '../api/qrushApi.js';
-import { computeVcHash, randomVcSecret, stableJson, toYyyymmdd } from '../utils/hash.js';
+import { computeVcHash, randomId, randomVcSecret, stableJson, toYyyymmdd } from '../utils/hash.js';
 import { loadIssuedVcs, saveIssuedVcs } from '../utils/vcStore.js';
 import { ISSUER_ADDRESS, IS_MOCK } from '../config.js';
 
@@ -61,7 +61,7 @@ export default function IssuerPage() {
 
       // 4) D 앱이 proof/VP를 만드는 데 필요한 모든 값을 한 객체로 — QR로 전달
       const credential = {
-        id: crypto.randomUUID(),
+        id: randomId(),
         issuedAt: new Date().toISOString(),
         vc,
         issuer: ISSUER_ADDRESS,
