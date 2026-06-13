@@ -1,107 +1,92 @@
-# QRush Backend — 연동 가이드 (A → B/C/D)
+# QRush Backend — 연동 가이드 v2 (A → B/C/D)
 
-## 오늘 완료된 것
-- ✅ verify-vp API (전자서명 + IssuerRegistry + VCRegistry 검증)
-- ✅ register-vc API (C 어드민용)
-- ✅ Circom 회로 작성 + 컴파일 (971 constraints)
-- ✅ Trusted Setup (Powers of Tau + Groth16) → verification_key.json, verifier.sol
-- ✅ verify-proof API (nonce 원자적 사용처리 + ZKP 검증 + useTicket)
-- ✅ mint-ticket이 blockchain 서비스 경유 (mock/real 전환 가능)
-- ✅ 오프라인 테스트 11개 통과 (proof 생성 ~0.9초)
+> ⚠️ v1 대비 ZKP 규격이 **B 컨트랙트에 맞춰 변경**됨. 아래 "달라진 점" 필독.
+
+## 달라진 점 (v1 → v2)
+- publicSignals 순서를 B의 `useTicket` pubSignals에 맞춤
+- vcHash는 회로에서 Poseidon 해싱하지 않고 **그대로 통과**(체인 isValidVC가 검증)
+- nonce는 hex가 아니라 **field(십진수)** 로 통일
+- generate-nonce가 체인 `registerNonce()`도 호출
+
+## publicSignals 순서 (★가장 중요)
+snarkjs `fullProve` 결과 publicSignals (5개):
+```
+[0] isAdult      (회로 output)
+[1] vcHash
+[2] nonce
+[3] tokenId
+[4] currentDate
+```
+B의 `useTicket`이 만드는 pubSignals (4개): `[vcHash, nonce, tokenId, isAdult]`
+
+→ **B 주의**: A의 verifier.sol은 `uint[5]`를 받음 (output 포함).
+   B의 ZKPVerifier가 `useTicket`에서 `uint[4]`만 넘기면 검증 실패함.
+   verifier에 넘길 때 순서는 `[isAdult, vcHash, nonce, tokenId, currentDate]`.
+   → 내일 A·B 5분 회의로 verifier 래퍼 시그니처 맞출 것.
+
+## 전달 파일
+| 받는 사람 | 파일 |
+|---|---|
+| B | `contracts/verifier.sol` (새 버전, uint[5]) |
+| D | `circuits/build/ticket_verify_js/ticket_verify.wasm` |
+| D | `circuits/build/ticket_verify_final.zkey` |
+| D | `scripts/generate_proof_sample.js` |
 
 ## Mock ↔ Real 전환
-`.env`에서 `MOCK_BLOCKCHAIN=true`(기본) → B 컨트랙트 없이 전체 플로우 동작.
-내일 B한테 받으면:
+`.env`에서 `MOCK_BLOCKCHAIN=false` + 아래 채우기:
 ```
-MOCK_BLOCKCHAIN=false
-RPC_URL=http://<B의 노드>:8545
-SERVER_PRIVATE_KEY=<서버 지갑 키>
+RPC_URL=http://<B노드>:8545
+SERVER_PRIVATE_KEY=<authorizeMinter로 등록된 서버 지갑 키>
 ISSUER_REGISTRY_ADDRESS=0x...
 VC_REGISTRY_ADDRESS=0x...
 TICKET_NFT_ADDRESS=0x...
 ```
-ABI가 다르면 `src/services/blockchain.js` 상단 ABI 배열만 수정.
+B 함수명이 다르면 `src/services/blockchain.js` 상단 ABI만 수정.
 
-## 전달 파일
-| 받는 사람 | 파일 | 용도 |
-|---|---|---|
-| B | `contracts/verifier.sol` | ZKPVerifier.sol에 통합 |
-| D | `circuits/build/ticket_verify_js/ticket_verify.wasm` | 앱 번들링 |
-| D | `circuits/build/ticket_verify_final.zkey` | 앱 번들링 |
-| D | `scripts/generate_proof_sample.js` | fullProve 입력 조립 예제 |
+## API 명세
 
-## API 명세 (C, D 공유용)
+### POST /api/vc/register-vc (C 어드민)
+`{ "vcHash": "field 십진수", "issuer": "0x..." }` → `{ success, txHash }`
 
-### POST /api/vc/register-vc  (C 어드민)
+### POST /api/vc/verify-vp (C 웹 ← D 앱)
 ```json
-{ "vcHash": "12345...(십진수 문자열)", "issuer": "0x..." }
-→ { "success": true, "txHash": "0x..." }
+{ "vp": { "holder":"0x..", "did":"did:qrush:..", "issuer":"0x..", "vcHash":"..", "claims":{"name":"..","age":23} },
+  "signature": "0x.." }
 ```
+서명 = `wallet.signMessage(JSON.stringify(vp))`, 키 순서 위와 동일하게.
 
-### POST /api/vc/verify-vp  (C 웹 ← D 앱)
+### POST /api/ticket/mint-ticket (C 웹)
+`{ "eventId":"1", "seatId":"1", "buyerWallet":"0x.." }` → `{ success, ticket{tokenId}, txHash }`
+※ eventId/seatId는 B 컨트랙트가 uint256이라 숫자 권장.
+
+### GET /api/ticket/by-wallet/:wallet (C 티켓 확인)
+
+### POST /api/gate/generate-nonce (C 게이트)
+→ `{ type:"QRushGateChallenge", nonce:"field", nonceHex, endpoint, expiresIn:30, chainTx }`
+QR에는 이 JSON 전체를 담으면 D가 그대로 파싱 가능.
+
+### POST /api/gate/verify-proof (D 앱)
 ```json
-{
-  "vp": {
-    "holder": "0x지갑주소",
-    "did": "did:qrush:user-...",
-    "issuer": "0x발급기관주소",
-    "vcHash": "12345...",
-    "claims": { "name": "홍길동", "age": 23 }
-  },
-  "signature": "0x..."   // wallet.signMessage(JSON.stringify(vp))
-}
-→ { "success": true, "verified": true, "holder": "0x..." }
+{ "proof":{..}, "publicSignals":[5개], "nonce":"field", "tokenId":"1", "vcHash":"field" }
 ```
-⚠️ **D 주의**: 서명 대상은 `JSON.stringify(vp)` 그대로. 키 순서까지 동일해야 하므로 위 순서로 객체 생성.
+→ 허용 `{ success:true, entry:true, txHash }` / 거부 401 `{ entry:false, error }`
 
-### POST /api/ticket/mint-ticket  (C 웹)
-```json
-{ "eventId": "ev1", "seatId": "A-12", "buyerWallet": "0x..." }
-→ { "success": true, "ticket": { "tokenId": "1", ... }, "txHash": "0x..." }
-```
-
-### GET /api/ticket/by-wallet/:wallet  (C 티켓 확인 페이지)
-
-### POST /api/gate/generate-nonce  (C 게이트 단말기)
-```json
-→ { "nonce": "hex(32자)", "nonceField": "십진수", "expiresInSec": 30 }
-```
-nonce는 16바이트(128bit) — BN254 field에 안전하게 들어가는 크기. QR에는 hex 그대로 표시.
-
-### POST /api/gate/verify-proof  (D 앱)
-```json
-{
-  "proof": { ... },                  // snarkjs.groth16.fullProve 결과
-  "publicSignals": ["...","...","...","..."],
-  "nonce": "QR에서 스캔한 hex",
-  "tokenId": "1"
-}
-→ 입장 허용: { "success": true, "entry": true, "txHash": "0x..." }
-→ 거부:     401 { "entry": false, "error": "..." }
-```
-
-## D의 proof 입력 조립 (publicSignals 순서 = [nonce, currentDate, tokenIdHash, vcHash])
+## D의 proof input 조립
 ```js
 const input = {
-  // private
-  birthdate: "20030415",          // YYYYMMDD
+  birthdate: "20030415",     // private, YYYYMMDD
+  vcHash:    "<field 십진수>", // public
+  nonce:     "<generate-nonce의 nonce>",
   tokenId:   "1",
-  vcSecret:  "987654321",         // VC 발급 시 받은 salt
-  // public
-  nonce:       BigInt("0x" + nonceHex).toString(),
-  currentDate: "20260613",        // 오늘 YYYYMMDD
-  tokenIdHash: poseidon([tokenId]),
-  vcHash:      poseidon([birthdate, vcSecret])
+  currentDate: "20260613"
 };
-const { proof, publicSignals } = await snarkjs.groth16.fullProve(input, wasmPath, zkeyPath);
+const { proof, publicSignals } = await snarkjs.groth16.fullProve(input, wasm, zkey);
 ```
-
-## vcHash 정의 (중요, C·D 합의 필요)
-`vcHash = Poseidon(birthdate, vcSecret)` — VC 발급 시 발급기관(C 어드민)이 vcSecret(랜덤 salt)을 생성해 VC에 포함시키고, 같은 vcHash를 register-vc로 등록.
+⚠️ vcHash는 BN254 field(<2^254) 안에 들어와야 함. 풀 32바이트 keccak이면 오버 가능 →
+   15바이트(120bit) 또는 mod r 처리. C·D·체인이 **동일한 vcHash 표현** 쓸 것.
 
 ## 테스트
 ```bash
-node scripts/test_offline.js   # MongoDB 불필요, ZKP/서명/mock 검증 11개
-npm run dev                    # 서버 실행 후 ↓
-node scripts/test_e2e.js       # 전체 플로우 + 재사용 공격 2종 차단 확인
+node scripts/test_offline.js   # ZKP/서명/mock 10개, MongoDB 불필요
+npm run dev && node scripts/test_e2e.js   # 전체 + 재사용 공격 2종
 ```

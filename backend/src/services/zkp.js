@@ -1,29 +1,26 @@
 /**
- * zkp.js — Groth16 proof 검증 서비스
+ * zkp.js — Groth16 proof 검증 서비스 (B 컨트랙트 규격 정렬판)
  *
- * publicSignals 순서 (회로 정의 기준):
- *   [0] nonce
- *   [1] currentDate (YYYYMMDD)
- *   [2] tokenIdHash = Poseidon(tokenId)
- *   [3] vcHash      = Poseidon(birthdate, vcSecret)
+ * snarkjs publicSignals 순서 (회로 output 먼저, 그 다음 public input 선언 순):
+ *   [0] isAdult      (output)
+ *   [1] vcHash
+ *   [2] nonce
+ *   [3] tokenId
+ *   [4] currentDate
+ *
+ * B의 useTicket pubSignals 순서: [vcHash, nonce, tokenId, isAdult]
+ *  → toContractPubSignals()로 변환해서 D/체인에 넘김
  */
 const path = require("path");
 const fs = require("fs");
 const snarkjs = require("snarkjs");
-const { buildPoseidon } = require("circomlibjs");
 
 const VKEY_PATH = path.join(__dirname, "../../circuits/build/verification_key.json");
 let vKey = null;
-let poseidon = null;
 
 function getVKey() {
   if (!vKey) vKey = JSON.parse(fs.readFileSync(VKEY_PATH, "utf8"));
   return vKey;
-}
-
-async function getPoseidon() {
-  if (!poseidon) poseidon = await buildPoseidon();
-  return poseidon;
 }
 
 /** Groth16 proof 검증 → boolean */
@@ -31,23 +28,24 @@ exports.verifyProof = async (proof, publicSignals) => {
   return snarkjs.groth16.verify(getVKey(), publicSignals, proof);
 };
 
-/** Poseidon 해시 (서버에서 tokenIdHash / vcHash 재계산용) → 십진수 문자열 */
-exports.poseidonHash = async (inputs) => {
-  const p = await getPoseidon();
-  return p.F.toString(p(inputs.map((x) => BigInt(x))));
-};
-
-/** publicSignals 파싱 헬퍼 */
+/** snarkjs publicSignals(5개) 파싱 */
 exports.parsePublicSignals = (publicSignals) => ({
-  nonce: publicSignals[0],
-  currentDate: publicSignals[1],
-  tokenIdHash: publicSignals[2],
-  vcHash: publicSignals[3]
+  isAdult: publicSignals[0],
+  vcHash: publicSignals[1],
+  nonce: publicSignals[2],
+  tokenId: publicSignals[3],
+  currentDate: publicSignals[4]
 });
+
+/** 체인(useTicket) pubSignals 순서 [vcHash, nonce, tokenId, isAdult]로 변환 */
+exports.toContractPubSignals = (publicSignals) => {
+  const p = exports.parsePublicSignals(publicSignals);
+  return [p.vcHash, p.nonce, p.tokenId, p.isAdult];
+};
 
 /** 오늘 날짜 YYYYMMDD (KST) */
 exports.todayYYYYMMDD = () => {
-  const now = new Date(Date.now() + 9 * 60 * 60 * 1000); // UTC+9
+  const now = new Date(Date.now() + 9 * 60 * 60 * 1000);
   return Number(
     `${now.getUTCFullYear()}${String(now.getUTCMonth() + 1).padStart(2, "0")}${String(now.getUTCDate()).padStart(2, "0")}`
   );
