@@ -40,7 +40,7 @@ exports.generateNonce = async (req, res) => {
  * nonce에 입장 결과를 기록하고 응답하는 헬퍼.
  * 게이트(C)가 GET /result/:nonce로 폴링해서 이 값을 읽음.
  */
-async function settle(res, nonceValue, { granted, status, reason = null, tokenId = null, txHash = null }) {
+async function settle(res, nonceValue, { granted, status, reason = null, tokenId = null, txHash = null, publicSignals = null }) {
   if (nonceValue != null) {
     await Nonce.updateOne(
       { value: String(nonceValue) },
@@ -49,6 +49,8 @@ async function settle(res, nonceValue, { granted, status, reason = null, tokenId
           result: granted ? "GRANTED" : "DENIED",
           resultReason: reason,
           tokenId: tokenId ? String(tokenId) : null,
+          txHash: txHash || null,
+          publicSignals: Array.isArray(publicSignals) ? publicSignals.map(String) : null,
           resolvedAt: new Date()
         }
       }
@@ -78,51 +80,60 @@ exports.verifyProof = async (req, res) => {
       { returnDocument: "after" }
     );
     if (!nonceDoc) {
-      // 이 nonce가 이미 처리됐거나 만료. 결과는 기록 못 함(문서 없음).
-      return res.status(401).json({ success: false, entry: false, error: "Nonce invalid, expired, or already used" });
+      // used=true로 이미 처리됐는지(재사용), 아니면 TTL로 사라졌는지(만료) 구분
+      const existing = await Nonce.findOne({ value: String(nonce) });
+      if (existing) {
+        // 문서는 있는데 이미 used → 재사용 시도. 기존 결과는 보존하되 사유 기록.
+        await Nonce.updateOne(
+          { value: String(nonce) },
+          { $set: { resultReason: "이미 사용된 nonce", resolvedAt: new Date() } }
+        );
+        return res.status(401).json({ success: false, entry: false, error: "이미 사용된 nonce" });
+      }
+      return res.status(401).json({ success: false, entry: false, error: "만료된 nonce" });
     }
 
     const ps = zkp.parsePublicSignals(publicSignals);
 
     // 2. 바인딩 확인
     if (BigInt(ps.nonce) !== BigInt(nonce)) {
-      return settle(res, nonce, { granted: false, reason: "Proof not bound to this nonce" });
+      return settle(res, nonce, { granted: false, reason: "nonce가 일치하지 않는 증명", publicSignals });
     }
     if (BigInt(ps.tokenId) !== BigInt(tokenId)) {
-      return settle(res, nonce, { granted: false, reason: "Proof not bound to this tokenId" });
+      return settle(res, nonce, { granted: false, reason: "티켓이 일치하지 않는 증명", publicSignals });
     }
     if (vcHash != null && BigInt(ps.vcHash) !== BigInt(vcHash)) {
-      return settle(res, nonce, { granted: false, reason: "Proof not bound to this vcHash" });
+      return settle(res, nonce, { granted: false, reason: "VC가 일치하지 않는 증명", publicSignals });
     }
     if (String(ps.isAdult) !== "1") {
-      return settle(res, nonce, { granted: false, reason: "Not adult" });
+      return settle(res, nonce, { granted: false, reason: "성인 인증 실패", publicSignals });
     }
 
     // 3. 날짜
     const today = zkp.todayYYYYMMDD();
     if (Math.abs(Number(ps.currentDate) - today) > 1) {
-      return settle(res, nonce, { granted: false, reason: "Proof date mismatch" });
+      return settle(res, nonce, { granted: false, reason: "날짜가 맞지 않는 증명", publicSignals });
     }
 
     // 4. 티켓 상태
     const ticket = await Ticket.findOne({ tokenId: String(tokenId) });
     if (!ticket) {
-      return settle(res, nonce, { granted: false, status: 404, reason: "Ticket not found" });
+      return settle(res, nonce, { granted: false, status: 404, reason: "존재하지 않는 티켓", publicSignals });
     }
     if (ticket.status !== "VALID") {
-      return settle(res, nonce, { granted: false, reason: `Ticket status is ${ticket.status}` });
+      return settle(res, nonce, { granted: false, reason: "이미 사용된 티켓", publicSignals });
     }
 
     // 5. VC 유효성
     const vcOk = await blockchain.isValidVC(ps.vcHash);
     if (!vcOk) {
-      return settle(res, nonce, { granted: false, reason: "VC is not valid (revoked?)" });
+      return settle(res, nonce, { granted: false, reason: "유효하지 않은 VC (폐기됨)", publicSignals });
     }
 
     // 6. ZKP 검증
     const ok = await zkp.verifyProof(proof, publicSignals);
     if (!ok) {
-      return settle(res, nonce, { granted: false, reason: "Invalid ZK proof" });
+      return settle(res, nonce, { granted: false, reason: "유효하지 않은 증명", publicSignals });
     }
 
     // 7. 체인 useTicket (B 시그니처: tokenId, nonce, vcHash, currentDate, pA, pB, pC)
@@ -130,7 +141,7 @@ exports.verifyProof = async (req, res) => {
     ticket.status = "USED";
     await ticket.save();
 
-    return settle(res, nonce, { granted: true, tokenId, txHash: tx.txHash });
+    return settle(res, nonce, { granted: true, tokenId, txHash: tx.txHash, publicSignals });
   } catch (err) {
     // 체인 등 예외 시에도 게이트가 빨간불 띄울 수 있게 결과 기록 시도
     try { await settle(res, req.body?.nonce, { granted: false, status: 500, reason: err.message }); }
@@ -147,15 +158,27 @@ exports.getResult = async (req, res) => {
   try {
     const doc = await Nonce.findOne({ value: String(req.params.nonce) });
     if (!doc) {
-      // TTL로 사라졌거나 존재한 적 없음 → 만료로 간주
-      return res.json({ found: false, result: "EXPIRED" });
+      // TTL로 사라졌거나 존재한 적 없음 → 만료로 간주 (게이트가 빨간불 처리)
+      return res.json({ decided: true, entry: false, reason: "만료된 nonce", publicSignals: null });
     }
-    res.json({
-      found: true,
-      result: doc.result,            // PENDING / GRANTED / DENIED
+    if (doc.result === "PENDING") {
+      return res.json({ decided: false });
+    }
+    if (doc.result === "GRANTED") {
+      return res.json({
+        decided: true,
+        entry: true,
+        tokenId: doc.tokenId,
+        txHash: doc.txHash,
+        publicSignals: doc.publicSignals || null
+      });
+    }
+    // DENIED
+    return res.json({
+      decided: true,
+      entry: false,
       reason: doc.resultReason,
-      tokenId: doc.tokenId,
-      resolvedAt: doc.resolvedAt
+      publicSignals: doc.publicSignals || null
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
