@@ -6,8 +6,6 @@ const blockchain = require("../services/blockchain");
 
 /**
  * POST /api/gate/generate-nonce  (C 게이트 단말기)
- * 16바이트(128bit) nonce 생성 → DB 저장 + 체인 registerNonce 호출.
- * nonce는 hex와 field(십진수) 두 형태로 반환. 회로/체인은 field를 사용.
  */
 exports.generateNonce = async (req, res) => {
   try {
@@ -16,21 +14,20 @@ exports.generateNonce = async (req, res) => {
 
     await Nonce.create({ value: nonceField });
 
-    // 체인에도 등록 (B의 useTicket이 nonceCreatedAt 검사함). mock이면 인메모리.
     let chainTx = null;
     try {
       const r = await blockchain.registerNonce(nonceField);
       chainTx = r.txHash;
     } catch (e) {
-      // 체인 등록 실패해도 데모 흐름은 계속 (로그만)
       console.warn("registerNonce failed:", e.message);
     }
 
     res.json({
-      type: "QRushGateChallenge",   // D 앱이 파싱하는 QR payload 형식
-      nonce: nonceField,            // 회로/체인 입력용 (십진수)
-      nonceHex,                     // 참고용
+      type: "QRushGateChallenge",
+      nonce: nonceField,
+      nonceHex,
       endpoint: "/api/gate/verify-proof",
+      resultEndpoint: `/api/gate/result/${nonceField}`,
       expiresIn: 30,
       chainTx
     });
@@ -40,21 +37,36 @@ exports.generateNonce = async (req, res) => {
 };
 
 /**
+ * nonce에 입장 결과를 기록하고 응답하는 헬퍼.
+ * 게이트(C)가 GET /result/:nonce로 폴링해서 이 값을 읽음.
+ */
+async function settle(res, nonceValue, { granted, status, reason = null, tokenId = null, txHash = null }) {
+  if (nonceValue != null) {
+    await Nonce.updateOne(
+      { value: String(nonceValue) },
+      {
+        $set: {
+          result: granted ? "GRANTED" : "DENIED",
+          resultReason: reason,
+          tokenId: tokenId ? String(tokenId) : null,
+          resolvedAt: new Date()
+        }
+      }
+    );
+  }
+  if (granted) {
+    return res.json({ success: true, entry: true, tokenId: String(tokenId), txHash });
+  }
+  return res.status(status || 401).json({ success: false, entry: false, error: reason });
+}
+
+/**
  * POST /api/gate/verify-proof  (D 앱)
  * body: { proof, publicSignals(5개), nonce(field), tokenId, vcHash }
- *
- * 검증 순서:
- *  1. nonce DB 원자적 사용처리 (서버단 1차 재사용 차단)
- *  2. publicSignals 파싱 → nonce/tokenId/isAdult 바인딩 확인
- *  3. 날짜 확인
- *  4. 티켓 상태 VALID 확인
- *  5. VC 유효성 (isValidVC)
- *  6. snarkjs.groth16.verify
- *  7. 체인 useTicket (B가 nonce TTL + ZKP 재검증 + USED 전환)
  */
 exports.verifyProof = async (req, res) => {
   try {
-    const { proof, publicSignals, nonce, tokenId, vcHash } = req.body;
+    const { proof, publicSignals, nonce, tokenId } = req.body;
     if (!proof || !publicSignals || nonce == null || tokenId == null) {
       return res.status(400).json({ success: false, error: "proof, publicSignals, nonce, tokenId are required" });
     }
@@ -66,6 +78,7 @@ exports.verifyProof = async (req, res) => {
       { returnDocument: "after" }
     );
     if (!nonceDoc) {
+      // 이 nonce가 이미 처리됐거나 만료. 결과는 기록 못 함(문서 없음).
       return res.status(401).json({ success: false, entry: false, error: "Nonce invalid, expired, or already used" });
     }
 
@@ -73,47 +86,75 @@ exports.verifyProof = async (req, res) => {
 
     // 2. 바인딩 확인
     if (BigInt(ps.nonce) !== BigInt(nonce)) {
-      return res.status(401).json({ success: false, entry: false, error: "Proof not bound to this nonce" });
+      return settle(res, nonce, { granted: false, reason: "Proof not bound to this nonce" });
     }
     if (BigInt(ps.tokenId) !== BigInt(tokenId)) {
-      return res.status(401).json({ success: false, entry: false, error: "Proof not bound to this tokenId" });
+      return settle(res, nonce, { granted: false, reason: "Proof not bound to this tokenId" });
     }
     if (String(ps.isAdult) !== "1") {
-      return res.status(401).json({ success: false, entry: false, error: "Not adult" });
+      return settle(res, nonce, { granted: false, reason: "Not adult" });
     }
 
-    // 3. 날짜 (오늘 기준 ±1일)
+    // 3. 날짜
     const today = zkp.todayYYYYMMDD();
     if (Math.abs(Number(ps.currentDate) - today) > 1) {
-      return res.status(401).json({ success: false, entry: false, error: "Proof date mismatch" });
+      return settle(res, nonce, { granted: false, reason: "Proof date mismatch" });
     }
 
     // 4. 티켓 상태
     const ticket = await Ticket.findOne({ tokenId: String(tokenId) });
-    if (!ticket) return res.status(404).json({ success: false, entry: false, error: "Ticket not found" });
+    if (!ticket) {
+      return settle(res, nonce, { granted: false, status: 404, reason: "Ticket not found" });
+    }
     if (ticket.status !== "VALID") {
-      return res.status(401).json({ success: false, entry: false, error: `Ticket status is ${ticket.status}` });
+      return settle(res, nonce, { granted: false, reason: `Ticket status is ${ticket.status}` });
     }
 
     // 5. VC 유효성
     const vcOk = await blockchain.isValidVC(ps.vcHash);
     if (!vcOk) {
-      return res.status(401).json({ success: false, entry: false, error: "VC is not valid (revoked?)" });
+      return settle(res, nonce, { granted: false, reason: "VC is not valid (revoked?)" });
     }
 
     // 6. ZKP 검증
     const ok = await zkp.verifyProof(proof, publicSignals);
     if (!ok) {
-      return res.status(401).json({ success: false, entry: false, error: "Invalid ZK proof" });
+      return settle(res, nonce, { granted: false, reason: "Invalid ZK proof" });
     }
 
-    // 7. 체인 useTicket (실제 모드면 여기서 nonce TTL/ZKP 재검증됨)
+    // 7. 체인 useTicket
     const tx = await blockchain.useTicketNFT(tokenId, ps.nonce, ps.vcHash, proof);
     ticket.status = "USED";
     await ticket.save();
 
-    res.json({ success: true, entry: true, tokenId: String(tokenId), txHash: tx.txHash });
+    return settle(res, nonce, { granted: true, tokenId, txHash: tx.txHash });
   } catch (err) {
-    res.status(500).json({ success: false, entry: false, error: err.message });
+    // 체인 등 예외 시에도 게이트가 빨간불 띄울 수 있게 결과 기록 시도
+    try { await settle(res, req.body?.nonce, { granted: false, status: 500, reason: err.message }); }
+    catch (_) { res.status(500).json({ success: false, entry: false, error: err.message }); }
+  }
+};
+
+/**
+ * GET /api/gate/result/:nonce  (C 게이트 단말기 폴링)
+ * 게이트가 자기가 발급한 nonce에 대해 입장 결과를 조회.
+ * 반환 result: PENDING(아직) | GRANTED(초록불) | DENIED(빨간불)
+ */
+exports.getResult = async (req, res) => {
+  try {
+    const doc = await Nonce.findOne({ value: String(req.params.nonce) });
+    if (!doc) {
+      // TTL로 사라졌거나 존재한 적 없음 → 만료로 간주
+      return res.json({ found: false, result: "EXPIRED" });
+    }
+    res.json({
+      found: true,
+      result: doc.result,            // PENDING / GRANTED / DENIED
+      reason: doc.resultReason,
+      tokenId: doc.tokenId,
+      resolvedAt: doc.resolvedAt
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 };

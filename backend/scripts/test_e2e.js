@@ -51,6 +51,10 @@ async function main() {
   r = await post("/api/gate/verify-proof", { proof, publicSignals, nonce, tokenId, vcHash });
   console.log("6. verify-proof:", r.status, r.body.entry ? "입장 허용 ✅" : r.body);
 
+  // 6-1. 게이트 폴링 (C가 쓰는 result 엔드포인트)
+  r = await fetch(BASE + "/api/gate/result/" + nonce).then(x => x.json());
+  console.log("6-1. result 폴링:", r.result === "GRANTED" ? "GRANTED ✅" : r);
+
   r = await post("/api/gate/verify-proof", { proof, publicSignals, nonce, tokenId, vcHash });
   console.log("7. nonce 재사용 공격:", r.status === 401 ? "차단 ✅" : "실패 ❌ " + JSON.stringify(r.body));
 

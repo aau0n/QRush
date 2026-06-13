@@ -12,10 +12,29 @@ const NonceSchema = new mongoose.Schema({
     default: false
   },
 
+  // 게이트(C)가 폴링할 입장 결과
+  result: {
+    type: String,
+    enum: ["PENDING", "GRANTED", "DENIED"],
+    default: "PENDING"
+  },
+  resultReason: {
+    type: String,
+    default: null
+  },
+  tokenId: {
+    type: String,
+    default: null
+  },
+  resolvedAt: {
+    type: Date,
+    default: null
+  },
+
   createdAt: {
     type: Date,
     default: Date.now,
-    expires: 30
+    expires: 60   // 게이트 폴링 여유를 위해 30→60초
   }
 });
 
