@@ -55,7 +55,7 @@ let nextNonce = null;
 
 function isNonceError(err) {
   const msg = err?.info?.error?.message || err?.message || "";
-  return err?.code === "NONCE_EXPIRED" || msg.includes("Nonce too low");
+  return err?.code === "NONCE_EXPIRED" || msg.includes("Nonce too low") || msg.includes("Nonce too high");
 }
 
 function syncNonceFromError(err) {
@@ -81,6 +81,7 @@ async function sendAndWait(sendTx) {
     } catch (err) {
       if (!isNonceError(err) || attempt === 4) throw err;
       syncNonceFromError(err);
+      nextNonce = null;
     }
   }
 }
