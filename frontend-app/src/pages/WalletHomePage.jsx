@@ -17,7 +17,7 @@ function shortenAddress(address) {
 export default function WalletHomePage() {
   const [profile, setProfile] = useState(() => loadHolderProfile(mockHolderProfile));
   const [savedVc, setSavedVc] = useState(() => loadVc(null));
-  const [tickets, setTickets] = useState(() => loadTickets(mockTickets));
+  const [tickets, setTickets] = useState(() => loadTickets([]));
 
   const resetDemoData = () => {
     saveHolderProfile(mockHolderProfile);

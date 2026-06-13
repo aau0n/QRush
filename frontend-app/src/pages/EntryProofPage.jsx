@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import JsonPreview from '../components/JsonPreview.jsx';
-import { mockHolderProfile, mockTickets } from '../data/mockWalletData.js';
+import { mockHolderProfile } from '../data/mockWalletData.js';
 import { generateEntryProof } from '../services/zkpProof.js';
 import {
   loadHolderProfile,
@@ -136,9 +136,9 @@ async function buildProofPayload({ challenge, ticket, profile, savedVc }) {
 export default function EntryProofPage() {
   const [profile] = useState(() => loadHolderProfile(mockHolderProfile));
   const [savedVc] = useState(() => loadVc(null));
-  const [tickets] = useState(() => loadTickets(mockTickets));
+  const [tickets] = useState(() => loadTickets([]));
   const [selectedTokenId, setSelectedTokenId] = useState(() =>
-    getInitialSelectedTokenId(loadTickets(mockTickets)),
+    getInitialSelectedTokenId(loadTickets([])),
   );
   const [challengeText, setChallengeText] = useState(getInitialChallengeText);
   const [parsedChallenge, setParsedChallenge] = useState(getInitialParsedChallenge);

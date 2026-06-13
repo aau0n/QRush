@@ -258,6 +258,7 @@ export default function VpCreatePage() {
       }
 
       setWalletAddress(account);
+      saveHolderProfile({ ...profile, walletAddress: account });
       setVpPayload(null);
       setSignature('');
       setCallbackUrl('');
@@ -305,6 +306,7 @@ export default function VpCreatePage() {
       });
 
       setWalletAddress(connectedAddress);
+      saveHolderProfile({ ...profile, walletAddress: connectedAddress });
       setVpPayload(vp);
       setSignature('');
       setCallbackUrl('');
@@ -336,6 +338,7 @@ export default function VpCreatePage() {
     }
 
     setWalletAddress(nextWalletAddress);
+    saveHolderProfile({ ...profile, walletAddress: nextWalletAddress });
     setVpPayload(vp);
     setSignature(nextSignature);
     setCallbackUrl(nextCallbackUrl);

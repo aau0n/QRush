@@ -1,35 +1,41 @@
 import { useMemo, useState } from 'react';
 import JsonPreview from '../components/JsonPreview.jsx';
 import TicketCard from '../components/TicketCard.jsx';
+import { IS_MOCK } from '../config.js';
 import { mockHolderProfile, mockTickets } from '../data/mockWalletData.js';
 import {
   clearSelectedTicket,
   loadHolderProfile,
+  loadLastVp,
   loadSelectedTicket,
   loadTickets,
   saveHolderProfile,
   saveSelectedTicket,
   saveTickets,
 } from '../services/storage.js';
+import { fetchTicketsByWallet } from '../services/ticketSync.js';
 
 function shortenAddress(address) {
   if (!address) return '-';
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
 }
 
+function getInitialWalletAddress(profile) {
+  return loadLastVp(null)?.walletAddress || profile?.walletAddress || '';
+}
+
 export default function TicketWalletPage() {
-  const [profile] = useState(() => {
+  const [profile, setProfile] = useState(() => {
     const currentProfile = loadHolderProfile(mockHolderProfile);
     saveHolderProfile(currentProfile);
     return currentProfile;
   });
-  const [tickets, setTickets] = useState(() => {
-    const currentTickets = loadTickets(mockTickets);
-    saveTickets(currentTickets);
-    return currentTickets;
-  });
+  const [walletAddress, setWalletAddress] = useState(() => getInitialWalletAddress(profile));
+  const [tickets, setTickets] = useState(() => loadTickets([]));
   const [selectedTicket, setSelectedTicket] = useState(() => loadSelectedTicket());
   const [statusMessage, setStatusMessage] = useState('');
+  const [error, setError] = useState('');
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const validTickets = useMemo(
     () => tickets.filter((ticket) => ticket.status === 'VALID'),
@@ -48,20 +54,52 @@ export default function TicketWalletPage() {
     setStatusMessage(
       ticket.status === 'VALID'
         ? `입장 증명에 사용할 티켓 #${ticket.tokenId}를 선택했습니다.`
-        : `#${ticket.tokenId}는 ${ticket.status} 상태이므로 입장 증명에 사용할 수 없습니다.`,
+        : `#${ticket.tokenId}는 ${ticket.status} 상태라 입장 증명에 사용할 수 없습니다.`,
     );
+  };
+
+  const syncTickets = async () => {
+    setStatusMessage('');
+    setError('');
+    setIsSyncing(true);
+
+    try {
+      const syncedTickets = await fetchTicketsByWallet(walletAddress);
+      saveTickets(syncedTickets);
+      setTickets(syncedTickets);
+
+      const nextProfile = {
+        ...profile,
+        walletAddress,
+      };
+      saveHolderProfile(nextProfile);
+      setProfile(nextProfile);
+
+      if (selectedTicket && !syncedTickets.some((ticket) => ticket.tokenId === selectedTicket.tokenId)) {
+        clearSelectedTicket();
+        setSelectedTicket(null);
+      }
+
+      setStatusMessage(`블록체인 서버에서 티켓 ${syncedTickets.length}개를 동기화했습니다.`);
+    } catch (nextError) {
+      setError(nextError.message || '티켓 동기화에 실패했습니다.');
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const handleResetTickets = () => {
     saveTickets(mockTickets);
     setTickets(mockTickets);
-    setStatusMessage('티켓 목록을 demo 기본값으로 복구했습니다.');
+    setStatusMessage('demo 티켓 목록을 복구했습니다.');
+    setError('');
   };
 
   const handleClearSelection = () => {
     clearSelectedTicket();
     setSelectedTicket(null);
-    setStatusMessage('선택된 티켓을 초기화했습니다.');
+    setStatusMessage('선택한 티켓을 초기화했습니다.');
+    setError('');
   };
 
   return (
@@ -69,15 +107,13 @@ export default function TicketWalletPage() {
       <div className="page-header">
         <p className="eyebrow">05 Ticket Wallet</p>
         <h2>보유 티켓 목록</h2>
-        <p>
-          사용자가 보유한 NFT 티켓을 확인하고, 입장 증명에 사용할 티켓을 선택하는 화면입니다.
-        </p>
+        <p>예매에 사용한 MetaMask 주소로 서버에서 NFT 티켓을 가져오고, 입장 증명에 사용할 티켓을 선택합니다.</p>
       </div>
 
       <div className="grid-3">
         <section className="panel stat-card">
           <span>지갑 주소</span>
-          <strong>{shortenAddress(profile?.walletAddress)}</strong>
+          <strong>{shortenAddress(walletAddress)}</strong>
         </section>
 
         <section className="panel stat-card">
@@ -91,13 +127,40 @@ export default function TicketWalletPage() {
         </section>
       </div>
 
+      <section className="panel form-panel">
+        <div className="section-title">
+          <h3>블록체인 서버 티켓 동기화</h3>
+          <span>/api/ticket/by-wallet/:wallet에서 실제 예매 티켓을 불러옵니다.</span>
+        </div>
+
+        <label>
+          지갑 주소
+          <input
+            value={walletAddress}
+            onChange={(event) => setWalletAddress(event.target.value)}
+            placeholder="0x..."
+          />
+        </label>
+
+        <div className="button-row">
+          <button className="primary-button" type="button" onClick={syncTickets} disabled={isSyncing || !walletAddress || IS_MOCK}>
+            {isSyncing ? '동기화 중' : '서버에서 티켓 불러오기'}
+          </button>
+          <button className="secondary-button" type="button" onClick={handleResetTickets}>
+            demo 티켓 복구
+          </button>
+        </div>
+
+        {IS_MOCK && <p className="error-text">frontend-app/.env에 VITE_API_BASE_URL이 없어 서버 조회가 비활성화되어 있습니다.</p>}
+      </section>
+
       <section className={selectedTicket ? 'panel status-panel success' : 'panel status-panel warning'}>
         <div>
-          <h3>{selectedTicket ? `선택된 티켓 #${selectedTicket.tokenId}` : '선택된 티켓 없음'}</h3>
+          <h3>{selectedTicket ? `선택한 티켓 #${selectedTicket.tokenId}` : '선택한 티켓 없음'}</h3>
           <p>
             {selectedTicket
               ? `${selectedTicket.eventTitle} / ${selectedTicket.seat} / ${selectedTicket.status}`
-              : '입장 증명 화면에서 사용할 티켓을 먼저 선택해 주세요.'}
+              : '입장 증명에 사용할 티켓을 먼저 선택해 주세요.'}
           </p>
         </div>
 
@@ -105,29 +168,31 @@ export default function TicketWalletPage() {
           <button className="secondary-button" type="button" onClick={handleClearSelection} disabled={!selectedTicket}>
             선택 초기화
           </button>
-          <button className="secondary-button" type="button" onClick={handleResetTickets}>
-            demo 티켓 복구
-          </button>
         </div>
       </section>
 
       {statusMessage && <p className="success-text">{statusMessage}</p>}
+      {error && <p className="error-text">{error}</p>}
 
       <section className="ticket-grid">
-        {tickets.map((ticket) => (
-          <TicketCard
-            key={ticket.tokenId}
-            ticket={ticket}
-            selected={selectedTicket?.tokenId === ticket.tokenId}
-            onSelect={handleSelectTicket}
-          />
-        ))}
+        {tickets.length > 0 ? (
+          tickets.map((ticket) => (
+            <TicketCard
+              key={ticket.tokenId}
+              ticket={ticket}
+              selected={selectedTicket?.tokenId === ticket.tokenId}
+              onSelect={handleSelectTicket}
+            />
+          ))
+        ) : (
+          <div className="panel empty-state">
+            <h3>보유 티켓이 없습니다</h3>
+            <p>예매를 완료한 MetaMask 주소로 서버 동기화를 실행해 주세요.</p>
+          </div>
+        )}
       </section>
 
-      <JsonPreview
-        title="Selected Ticket JSON"
-        data={selectedTicket}
-      />
+      <JsonPreview title="Selected Ticket JSON" data={selectedTicket} />
     </section>
   );
 }
