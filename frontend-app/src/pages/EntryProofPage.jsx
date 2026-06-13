@@ -15,7 +15,7 @@ const sampleGateChallenge = {
   type: 'QRushGateChallenge',
   nonce: '763585835955600474492399',
   nonceHex: '0xa1b21234567890abcdef',
-  endpoint: 'http://localhost:3000/api/gate/verify-proof',
+  endpoint: 'http://192.168.0.20:3000/api/gate/verify-proof',
   expiresIn: 30,
 };
 

@@ -7,7 +7,7 @@ import { loadHolderProfile, loadLastVp, loadVc, saveHolderProfile, saveLastVp } 
 const initialForm = {
   eventId: 'match-001',
   seat: 'A1',
-  callback: 'http://localhost:5173/booking',
+  callback: 'http://192.168.0.20:5173/booking',
 };
 
 function shortenAddress(address) {
