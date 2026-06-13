@@ -25,7 +25,3 @@ export const DAPP_BASE_URL =
 // D 앱이 게이트 QR을 파싱해 proof를 POST할 절대 주소.
 export const VERIFY_PROOF_PATH = '/api/gate/verify-proof';
 export const verifyProofUrl = () => `${API_BASE_URL}${VERIFY_PROOF_PATH}`;
-
-export function buildMetaMaskDappUrl(targetUrl) {
-  return `https://link.metamask.io/dapp/${encodeURIComponent(targetUrl)}`;
-}

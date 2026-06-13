@@ -110,6 +110,27 @@ exports.registerVC = async (vcHash) => {
   return { txHash: receipt.hash };
 };
 
+/** C mock id(match-001) / 좌석(A1) → 컨트랙트 uint256 */
+function toChainUint256(value, label = "value") {
+  const raw = String(value).trim();
+  if (!raw) throw new Error(`${label} is required`);
+
+  if (/^\d+$/.test(raw)) return BigInt(raw);
+
+  const eventMatch = raw.match(/^match-(\d+)$/i);
+  if (eventMatch) return BigInt(eventMatch[1]);
+
+  const seatMatch = raw.match(/^([A-Za-z])(\d+)$/);
+  if (seatMatch) {
+    const row = seatMatch[1].toUpperCase().charCodeAt(0) - 64;
+    const col = Number(seatMatch[2]);
+    if (row < 1 || col < 1) throw new Error(`Invalid seat id: ${raw}`);
+    return BigInt(row * 1000 + col);
+  }
+
+  throw new Error(`Cannot convert ${raw} to uint256 for ${label}`);
+}
+
 exports.mintTicketNFT = async (toAddress, eventId, seatId) => {
   if (MOCK) {
     const tokenId = mockState.nextTokenId++;
@@ -117,7 +138,11 @@ exports.mintTicketNFT = async (toAddress, eventId, seatId) => {
     return { tokenId: String(tokenId), txHash: "0xmock_mint_" + tokenId };
   }
   initContracts();
-  const receipt = await sendAndWait((overrides) => ticketNFT.mintTicket(toAddress, eventId, seatId, overrides));
+  const chainEventId = toChainUint256(eventId, "eventId");
+  const chainSeatId = toChainUint256(seatId, "seatId");
+  const receipt = await sendAndWait((overrides) =>
+    ticketNFT.mintTicket(toAddress, chainEventId, chainSeatId, overrides)
+  );
   let tokenId = null;
   for (const log of receipt.logs) {
     try {

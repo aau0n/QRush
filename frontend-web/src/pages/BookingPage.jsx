@@ -3,7 +3,7 @@ import { ethers } from 'ethers';
 import QRCodePanel from '../components/QRCodePanel.jsx';
 import { mintTicket, verifyVp } from '../api/qrushApi.js';
 import { mockEvents, seatRows } from '../data/mockData.js';
-import { DAPP_BASE_URL, buildMetaMaskDappUrl } from '../config.js';
+import { DAPP_BASE_URL } from '../config.js';
 
 // "2003-04-15" → 만 나이(정수)
 function calcAge(birthdateStr) {
@@ -41,7 +41,7 @@ export default function BookingPage() {
       seat: selectedSeat,
       callback: `${window.location.origin}/booking`,
     });
-    return buildMetaMaskDappUrl(`${DAPP_BASE_URL}/vp?${params.toString()}`);
+    return `${DAPP_BASE_URL}/vp?${params.toString()}`;
   }, [event.id, selectedSeat]);
 
   // verify-vp → mint-ticket (수동 제출과 callback 자동 제출이 공유)

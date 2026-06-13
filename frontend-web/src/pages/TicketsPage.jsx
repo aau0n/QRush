@@ -1,5 +1,15 @@
 import { useState } from 'react';
 import { getTicketsByWallet } from '../api/qrushApi.js';
+import { mockEvents } from '../data/mockData.js';
+
+function getEventTitle(ticket) {
+  if (ticket.eventTitle) return ticket.eventTitle;
+  return mockEvents.find((event) => event.id === ticket.eventId)?.title || ticket.eventId || '-';
+}
+
+function getSeatLabel(ticket) {
+  return ticket.seat || ticket.seatId || '-';
+}
 
 export default function TicketsPage() {
   const [walletAddress, setWalletAddress] = useState('');
@@ -62,8 +72,8 @@ export default function TicketsPage() {
             {tickets.map((ticket) => (
               <div className="ticket-row" key={ticket.tokenId} role="row">
                 <span>{ticket.tokenId}</span>
-                <span>{ticket.eventTitle}</span>
-                <span>{ticket.seat}</span>
+                <span>{getEventTitle(ticket)}</span>
+                <span>{getSeatLabel(ticket)}</span>
                 <span className={ticket.status === 'VALID' ? 'badge valid' : 'badge used'}>
                   {ticket.status}
                 </span>
