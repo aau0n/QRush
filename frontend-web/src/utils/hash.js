@@ -27,6 +27,12 @@ export function computeVcHash(birthdateYyyymmdd, vcSecret) {
   return poseidon2([BigInt(birthdateYyyymmdd), BigInt(vcSecret)]).toString();
 }
 
+// 고유 id 생성 (발급 이력 항목 식별용)
+export function randomId() {
+  if (globalThis.crypto?.randomUUID) return crypto.randomUUID();
+  return `id-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 // ── 기존 유틸 (JSON 직렬화/표시용) ─────────────────────────────────────────
 export async function sha256(text) {
   const data = new TextEncoder().encode(text);
