@@ -1,12 +1,12 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ethers } from 'ethers';
 import JsonPreview from '../components/JsonPreview.jsx';
 import { mockHolderProfile } from '../data/mockWalletData.js';
 import { loadHolderProfile, loadLastVp, loadVc, saveHolderProfile, saveLastVp } from '../services/storage.js';
 
 const initialForm = {
-  eventId: 'event-001',
-  seat: 'A3',
+  eventId: 'match-001',
+  seat: 'A1',
   callback: 'http://localhost:5173/booking',
 };
 
@@ -44,17 +44,21 @@ function getIssuer(savedVc) {
   return savedVc?.issuer || savedVc?.vc?.issuer || '';
 }
 
+function getVcHash(savedVc) {
+  return savedVc?.vcHash || savedVc?.vc?.vcHash || savedVc?.vc?.credentialSubject?.vcHash || '';
+}
+
 function buildBookingVp({ profile, savedVc, walletAddress }) {
   const subject = getCredentialSubject(savedVc);
-  const age = subject.age ?? calculateAge(subject.birthdate);
+  const age = subject.age ?? calculateAge(subject.birthdate || savedVc?.birthdate);
 
   return {
     holder: walletAddress || profile.walletAddress,
     did: subject.id || profile.holderDid,
     issuer: getIssuer(savedVc),
-    vcHash: savedVc?.vcHash || null,
+    vcHash: getVcHash(savedVc),
     claims: {
-      name: subject.name || '',
+      name: subject.name || savedVc?.name || '',
       age,
     },
   };
@@ -64,9 +68,71 @@ function stringifyVpForSignature(vp) {
   return JSON.stringify(vp);
 }
 
+function parseBookingQr(rawValue) {
+  const raw = rawValue.trim();
+  if (!raw) throw new Error('예매 QR 값을 입력해 주세요.');
+
+  const url = new URL(raw);
+  if (url.protocol !== 'qrush:' || url.hostname !== 'create-vp') {
+    throw new Error('qrush://create-vp 형식의 예매 QR만 처리할 수 있습니다.');
+  }
+
+  const eventId = url.searchParams.get('eventId');
+  const seat = url.searchParams.get('seat');
+  const callback = url.searchParams.get('callback');
+
+  if (!eventId || !seat) {
+    throw new Error('예매 QR에 eventId 또는 seat 값이 없습니다.');
+  }
+
+  return {
+    eventId,
+    seat,
+    callback: callback || '',
+  };
+}
+
+function buildCallbackUrl({ callback, vp, signature, eventId, seat }) {
+  if (!callback) throw new Error('callback URL이 없습니다.');
+
+  const url = new URL(callback);
+  url.searchParams.set('vp', JSON.stringify(vp));
+  url.searchParams.set('signature', signature);
+  url.searchParams.set('eventId', eventId);
+  url.searchParams.set('seat', seat);
+  return url.toString();
+}
+
+function getInitialBookingQrText() {
+  const params = new URLSearchParams(window.location.search);
+  const deeplink = params.get('deeplink');
+  if (deeplink) return deeplink;
+
+  const eventId = params.get('eventId');
+  const seat = params.get('seat');
+  const callback = params.get('callback');
+  if (!eventId || !seat) return '';
+
+  const url = new URL('qrush://create-vp');
+  url.searchParams.set('eventId', eventId);
+  url.searchParams.set('seat', seat);
+  if (callback) url.searchParams.set('callback', callback);
+  return url.toString();
+}
+
+function getInitialBookingForm() {
+  try {
+    const qrText = getInitialBookingQrText();
+    return qrText ? parseBookingQr(qrText) : initialForm;
+  } catch {
+    return initialForm;
+  }
+}
+
 export default function VpCreatePage() {
   const lastVp = loadLastVp(null);
-  const [form, setForm] = useState(initialForm);
+  const [bookingQrText, setBookingQrText] = useState(getInitialBookingQrText);
+  const [form, setForm] = useState(getInitialBookingForm);
   const [profile] = useState(() => {
     const currentProfile = loadHolderProfile(mockHolderProfile);
     saveHolderProfile(currentProfile);
@@ -76,8 +142,20 @@ export default function VpCreatePage() {
   const [walletAddress, setWalletAddress] = useState(() => lastVp?.walletAddress || '');
   const [vpPayload, setVpPayload] = useState(() => lastVp?.vp || null);
   const [signature, setSignature] = useState(() => lastVp?.signature || '');
+  const [callbackUrl, setCallbackUrl] = useState(() => lastVp?.callbackUrl || '');
   const [statusMessage, setStatusMessage] = useState('');
   const [error, setError] = useState('');
+
+  const signedPayload = useMemo(() => {
+    if (!vpPayload || !signature) return null;
+    return {
+      vp: vpPayload,
+      signature,
+      eventId: form.eventId,
+      seat: form.seat,
+      callback: form.callback,
+    };
+  }, [form.callback, form.eventId, form.seat, signature, vpPayload]);
 
   const updateForm = (event) => {
     setForm((current) => ({
@@ -91,30 +169,11 @@ export default function VpCreatePage() {
     setStatusMessage('');
 
     try {
-      const raw = window.prompt(
-        'C 웹에서 생성한 deeplink를 붙여넣어 주세요.\n예: qrush://create-vp?eventId=event-001&seat=A3&callback=http://localhost:5173/booking',
-      );
-
-      if (!raw) return;
-
-      const url = new URL(raw);
-      const eventId = url.searchParams.get('eventId');
-      const seat = url.searchParams.get('seat');
-      const callback = url.searchParams.get('callback');
-
-      if (!eventId || !seat) {
-        throw new Error('deeplink에 eventId 또는 seat 값이 없습니다.');
-      }
-
-      setForm({
-        eventId,
-        seat,
-        callback: callback || '',
-      });
-
-      setStatusMessage('deeplink에서 예매 요청 정보를 불러왔습니다.');
+      const parsed = parseBookingQr(bookingQrText);
+      setForm(parsed);
+      setStatusMessage('예매 QR에서 eventId, seat, callback을 읽었습니다.');
     } catch (nextError) {
-      setError(nextError.message || 'deeplink 파싱에 실패했습니다.');
+      setError(nextError.message || '예매 QR 파싱에 실패했습니다.');
     }
   };
 
@@ -148,7 +207,7 @@ export default function VpCreatePage() {
     }
 
     if (!savedVc) {
-      setError('저장된 VC가 없습니다. 먼저 VC 저장 화면에서 VC를 저장해주세요.');
+      setError('저장된 VC가 없습니다. 먼저 VC 저장 화면에서 VC를 저장해 주세요.');
       return;
     }
 
@@ -160,14 +219,44 @@ export default function VpCreatePage() {
 
     setVpPayload(vp);
     setSignature('');
+    setCallbackUrl('');
 
     saveLastVp({
       vp,
       signature: '',
       walletAddress: walletAddress || profile.walletAddress,
+      callbackUrl: '',
     });
 
-    setStatusMessage('예매용 VP JSON을 생성했습니다. 아직 서명은 생성하지 않았습니다.');
+    setStatusMessage('예매용 VP JSON을 생성했습니다. 서명은 아직 생성하지 않았습니다.');
+  };
+
+  const saveSignedVp = ({ vp, nextSignature, nextWalletAddress }) => {
+    let nextCallbackUrl = '';
+
+    if (form.callback) {
+      nextCallbackUrl = buildCallbackUrl({
+        callback: form.callback,
+        vp,
+        signature: nextSignature,
+        eventId: form.eventId,
+        seat: form.seat,
+      });
+    }
+
+    setWalletAddress(nextWalletAddress);
+    setVpPayload(vp);
+    setSignature(nextSignature);
+    setCallbackUrl(nextCallbackUrl);
+
+    saveLastVp({
+      vp,
+      signature: nextSignature,
+      walletAddress: nextWalletAddress,
+      callbackUrl: nextCallbackUrl,
+    });
+
+    return nextCallbackUrl;
   };
 
   const signVpWithMetaMask = async () => {
@@ -184,7 +273,7 @@ export default function VpCreatePage() {
       }
 
       if (!savedVc) {
-        throw new Error('저장된 VC가 없습니다. 먼저 VC 저장 화면에서 VC를 저장해주세요.');
+        throw new Error('저장된 VC가 없습니다. 먼저 VC 저장 화면에서 VC를 저장해 주세요.');
       }
 
       const provider = new ethers.BrowserProvider(window.ethereum);
@@ -198,18 +287,13 @@ export default function VpCreatePage() {
       });
 
       const nextSignature = await signer.signMessage(stringifyVpForSignature(vp));
-
-      setWalletAddress(signerAddress);
-      setVpPayload(vp);
-      setSignature(nextSignature);
-
-      saveLastVp({
+      saveSignedVp({
         vp,
-        signature: nextSignature,
-        walletAddress: signerAddress,
+        nextSignature,
+        nextWalletAddress: signerAddress,
       });
 
-      setStatusMessage('MetaMask로 VP 서명을 생성했습니다.');
+      setStatusMessage('MetaMask로 VP를 서명했습니다. 필요하면 callback URL로 C 예매 화면에 전달하세요.');
     } catch (nextError) {
       setError(nextError.message || 'VP 서명에 실패했습니다.');
     }
@@ -219,21 +303,26 @@ export default function VpCreatePage() {
     setError('');
     setStatusMessage('');
 
-    if (!vpPayload) {
-      setError('먼저 VP JSON을 생성해주세요.');
-      return;
+    try {
+      const vp =
+        vpPayload ||
+        buildBookingVp({
+          profile,
+          savedVc,
+          walletAddress,
+        });
+
+      const mockSignature = `mock-signature-${Date.now()}`;
+      saveSignedVp({
+        vp,
+        nextSignature: mockSignature,
+        nextWalletAddress: walletAddress || profile?.walletAddress || '',
+      });
+
+      setStatusMessage('프로토타입용 mock signature를 생성했습니다.');
+    } catch (nextError) {
+      setError(nextError.message || 'mock signature 생성에 실패했습니다.');
     }
-
-    const mockSignature = `mock-signature-${Date.now()}`;
-    setSignature(mockSignature);
-
-    saveLastVp({
-      vp: vpPayload,
-      signature: mockSignature,
-      walletAddress: walletAddress || profile?.walletAddress || '',
-    });
-
-    setStatusMessage('프로토타입용 mock signature를 생성했습니다.');
   };
 
   const copyVpJson = async () => {
@@ -250,22 +339,58 @@ export default function VpCreatePage() {
     setStatusMessage('Signature를 클립보드에 복사했습니다.');
   };
 
+  const copyCallbackUrl = async () => {
+    if (!callbackUrl) return;
+
+    await navigator.clipboard.writeText(callbackUrl);
+    setStatusMessage('callback URL을 클립보드에 복사했습니다.');
+  };
+
+  const openCallbackUrl = () => {
+    if (!callbackUrl) return;
+    window.location.href = callbackUrl;
+  };
+
   return (
     <section className="content-stack">
       <div className="page-header">
         <p className="eyebrow">03 VP Create</p>
-        <h2>예매용 VP 생성</h2>
+        <h2>예매 VP 생성</h2>
         <p>
-          C 웹의 예매 요청을 받고 저장된 VC를 기반으로 VP를 생성한 뒤, 사용자의 지갑으로
-          JSON.stringify(vp) 원문을 서명합니다.
+          C 웹의 예매 QR을 읽고 저장된 VC로 VP를 만든 뒤, compact JSON.stringify(vp) 원문에
+          지갑 서명을 붙여 callback URL로 돌려보냅니다.
         </p>
       </div>
+
+      <section className="panel flow-panel">
+        <div className="section-title">
+          <h3>예매 QR 처리</h3>
+          <span>qrush://create-vp?eventId=...&seat=...&callback=... 형식입니다.</span>
+        </div>
+        <label>
+          Booking QR deeplink
+          <textarea
+            value={bookingQrText}
+            onChange={(event) => setBookingQrText(event.target.value)}
+            placeholder="qrush://create-vp?eventId=match-001&seat=A1&callback=http://192.168.0.20:5173/booking"
+            rows={4}
+          />
+        </label>
+        <div className="button-row">
+          <button className="primary-button" type="button" onClick={parseDeeplink}>
+            예매 QR 읽기
+          </button>
+          <button className="secondary-button" type="button" onClick={connectWallet}>
+            {walletAddress ? shortenAddress(walletAddress) : 'MetaMask 연결'}
+          </button>
+        </div>
+      </section>
 
       <div className="two-column">
         <section className="panel form-panel">
           <div className="section-title">
             <h3>예매 요청 정보</h3>
-            <span>C BookingPage deeplink 값과 맞춰지는 정보입니다.</span>
+            <span>QR 파싱 결과를 확인하거나 데모용으로 직접 수정할 수 있습니다.</span>
           </div>
 
           <label>
@@ -282,21 +407,12 @@ export default function VpCreatePage() {
             callback
             <input name="callback" value={form.callback} onChange={updateForm} />
           </label>
-
-          <div className="button-row">
-            <button className="secondary-button" type="button" onClick={parseDeeplink}>
-              deeplink 붙여넣기
-            </button>
-            <button className="secondary-button" type="button" onClick={connectWallet}>
-              {walletAddress ? shortenAddress(walletAddress) : 'MetaMask 연결'}
-            </button>
-          </div>
         </section>
 
         <section className={savedVc ? 'panel status-panel success' : 'panel status-panel warning'}>
           <div>
             <h3>{savedVc ? 'VC 사용 가능' : 'VC 없음'}</h3>
-            <p>{savedVc ? `VC Hash: ${savedVc.vcHash}` : 'VP 생성을 위해 먼저 VC를 저장해야 합니다.'}</p>
+            <p>{savedVc ? `VC Hash: ${getVcHash(savedVc)}` : 'VP 생성을 위해 먼저 VC를 저장해야 합니다.'}</p>
           </div>
         </section>
       </div>
@@ -304,7 +420,7 @@ export default function VpCreatePage() {
       <section className="panel form-panel">
         <div className="section-title">
           <h3>VP 생성 및 서명</h3>
-          <span>C 웹의 VP JSON / Signature 입력칸에 복사해서 넣을 수 있습니다.</span>
+          <span>VP 키 순서는 holder, did, issuer, vcHash, claims로 고정됩니다.</span>
         </div>
 
         <div className="button-row">
@@ -327,7 +443,7 @@ export default function VpCreatePage() {
         <section className="panel form-panel">
           <div className="section-title">
             <h3>C 웹으로 전달할 값</h3>
-            <span>VP 키 순서는 holder, did, issuer, vcHash, claims입니다.</span>
+            <span>서명 검증은 JSON.stringify(vp) compact 문자열 기준입니다.</span>
           </div>
 
           <label>
@@ -340,6 +456,13 @@ export default function VpCreatePage() {
             <input readOnly value={signature} placeholder="아직 서명이 없습니다." />
           </label>
 
+          {callbackUrl && (
+            <label>
+              Callback URL
+              <textarea readOnly rows={4} value={callbackUrl} />
+            </label>
+          )}
+
           <div className="button-row">
             <button className="secondary-button" type="button" onClick={copyVpJson}>
               VP JSON 복사
@@ -347,11 +470,17 @@ export default function VpCreatePage() {
             <button className="secondary-button" type="button" onClick={copySignature} disabled={!signature}>
               Signature 복사
             </button>
+            <button className="secondary-button" type="button" onClick={copyCallbackUrl} disabled={!callbackUrl}>
+              callback URL 복사
+            </button>
+            <button className="primary-button" type="button" onClick={openCallbackUrl} disabled={!callbackUrl}>
+              C 예매 화면으로 돌아가기
+            </button>
           </div>
         </section>
       )}
 
-      <JsonPreview title="Last Booking VP Payload" data={vpPayload ? { vp: vpPayload, signature } : null} />
+      <JsonPreview title="Last Booking VP Payload" data={signedPayload || (vpPayload ? { vp: vpPayload } : null)} />
     </section>
   );
 }

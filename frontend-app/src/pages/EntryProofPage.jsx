@@ -14,10 +14,9 @@ import {
 const sampleGateChallenge = {
   type: 'QRushGateChallenge',
   nonce: '763585835955600474492399',
-  nonceHex: 'a1b21234567890abcdef',
-  endpoint: '/api/gate/verify-proof',
+  nonceHex: '0xa1b21234567890abcdef',
+  endpoint: 'http://localhost:3000/api/gate/verify-proof',
   expiresIn: 30,
-  chainTx: '0xsample',
 };
 
 const circuitMeta = {
@@ -44,6 +43,60 @@ function getInitialSelectedTokenId(tickets) {
   );
 }
 
+function getInitialChallengeText() {
+  const params = new URLSearchParams(window.location.search);
+  const challenge = params.get('challenge');
+  if (challenge) return challenge;
+
+  const nonce = params.get('nonce');
+  const endpoint = params.get('endpoint');
+  if (!nonce) return '';
+
+  return JSON.stringify(
+    {
+      type: 'QRushGateChallenge',
+      nonce,
+      endpoint: endpoint || '/api/gate/verify-proof',
+      expiresIn: Number(params.get('expiresIn') || 30),
+    },
+    null,
+    2,
+  );
+}
+
+function parseGateChallenge(rawValue) {
+  const parsed = JSON.parse(rawValue);
+
+  if (parsed.type !== 'QRushGateChallenge') {
+    throw new Error('type이 QRushGateChallenge인 Gate QR payload만 사용할 수 있습니다.');
+  }
+
+  if (!parsed.nonce) {
+    throw new Error('Gate Challenge에 nonce가 없습니다.');
+  }
+
+  try {
+    BigInt(parsed.nonce);
+  } catch {
+    throw new Error('Gate Challenge nonce는 십진 field 문자열이어야 합니다.');
+  }
+
+  if (!parsed.endpoint) {
+    throw new Error('Gate Challenge에 endpoint가 없습니다.');
+  }
+
+  return parsed;
+}
+
+function getInitialParsedChallenge() {
+  try {
+    const challengeText = getInitialChallengeText();
+    return challengeText ? parseGateChallenge(challengeText) : null;
+  } catch {
+    return null;
+  }
+}
+
 async function buildProofPayload({ challenge, ticket, profile, savedVc }) {
   const startedAt = performance.now();
   const { input, proof, publicSignals } = await generateEntryProof({
@@ -61,7 +114,7 @@ async function buildProofPayload({ challenge, ticket, profile, savedVc }) {
     vcHash: input.vcHash,
     nonce: input.nonce,
     nonceHex: challenge.nonceHex || null,
-    gateEndpoint: challenge.endpoint || '/api/gate/verify-proof',
+    gateEndpoint: challenge.endpoint,
     proof,
     publicSignals,
     proofInput: input,
@@ -87,12 +140,14 @@ export default function EntryProofPage() {
   const [selectedTokenId, setSelectedTokenId] = useState(() =>
     getInitialSelectedTokenId(loadTickets(mockTickets)),
   );
-  const [challengeText, setChallengeText] = useState('');
-  const [parsedChallenge, setParsedChallenge] = useState(null);
+  const [challengeText, setChallengeText] = useState(getInitialChallengeText);
+  const [parsedChallenge, setParsedChallenge] = useState(getInitialParsedChallenge);
   const [entryProof, setEntryProof] = useState(() => loadLastEntryProof(null));
+  const [gateResult, setGateResult] = useState(null);
   const [statusMessage, setStatusMessage] = useState('');
   const [error, setError] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const fillSampleChallenge = () => {
     setChallengeText(JSON.stringify(sampleGateChallenge, null, 2));
@@ -106,22 +161,7 @@ export default function EntryProofPage() {
     setParsedChallenge(null);
 
     try {
-      const parsed = JSON.parse(challengeText);
-
-      if (parsed.type !== 'QRushGateChallenge') {
-        throw new Error('type이 QRushGateChallenge인 Gate QR payload만 사용할 수 있습니다.');
-      }
-
-      if (!parsed.nonce) {
-        throw new Error('Gate Challenge에 nonce가 없습니다.');
-      }
-
-      try {
-        BigInt(parsed.nonce);
-      } catch {
-        throw new Error('Gate Challenge nonce는 field 십진수 문자열이어야 합니다.');
-      }
-
+      const parsed = parseGateChallenge(challengeText);
       setParsedChallenge(parsed);
       setStatusMessage('Gate Challenge를 정상적으로 읽었습니다.');
     } catch (nextError) {
@@ -132,6 +172,7 @@ export default function EntryProofPage() {
   const createEntryProof = async () => {
     setError('');
     setStatusMessage('');
+    setGateResult(null);
     setIsGenerating(true);
 
     try {
@@ -140,12 +181,11 @@ export default function EntryProofPage() {
       }
 
       if (!savedVc) {
-        throw new Error('저장된 VC가 없습니다. 먼저 VC 저장 화면에서 VC를 저장해주세요.');
+        throw new Error('저장된 VC가 없습니다. 먼저 VC 저장 화면에서 VC를 저장해 주세요.');
       }
 
-      if (!parsedChallenge) {
-        throw new Error('먼저 Gate Challenge를 파싱해주세요.');
-      }
+      const challenge = parsedChallenge || parseGateChallenge(challengeText);
+      setParsedChallenge(challenge);
 
       const selectedTicket = tickets.find((ticket) => ticket.tokenId === selectedTokenId);
 
@@ -158,7 +198,7 @@ export default function EntryProofPage() {
       }
 
       const proofPayload = await buildProofPayload({
-        challenge: parsedChallenge,
+        challenge,
         ticket: selectedTicket,
         profile,
         savedVc,
@@ -167,25 +207,68 @@ export default function EntryProofPage() {
       setEntryProof(proofPayload);
       saveLastEntryProof(proofPayload);
       setStatusMessage(`ZKP entry proof를 생성했습니다. (${proofPayload.proofMeta.generatedMs}ms)`);
+      return proofPayload;
     } catch (nextError) {
       setError(nextError.message || 'ZKP proof 생성에 실패했습니다.');
+      return null;
     } finally {
       setIsGenerating(false);
+    }
+  };
+
+  const submitEntryProof = async () => {
+    setError('');
+    setStatusMessage('');
+    setGateResult(null);
+    setIsSubmitting(true);
+
+    try {
+      const challenge = parsedChallenge || parseGateChallenge(challengeText);
+      const proofPayload = entryProof || (await createEntryProof());
+
+      if (!proofPayload) {
+        throw new Error('제출할 proof payload가 없습니다.');
+      }
+
+      const response = await fetch(challenge.endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(proofPayload.verifyProofBody),
+      });
+
+      const resultText = await response.text();
+      let result;
+
+      try {
+        result = resultText ? JSON.parse(resultText) : {};
+      } catch {
+        result = { message: resultText };
+      }
+
+      setGateResult({
+        ok: response.ok,
+        status: response.status,
+        body: result,
+      });
+
+      if (!response.ok) {
+        throw new Error(result?.message || result?.error || `Gate verify failed (${response.status})`);
+      }
+
+      setStatusMessage('Gate endpoint로 proof를 제출했습니다.');
+    } catch (nextError) {
+      setError(nextError.message || 'Gate endpoint 제출에 실패했습니다.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const copyEntryProof = async () => {
     if (!entryProof) return;
 
-    const payload = entryProof.verifyProofBody || {
-      proof: entryProof.proof,
-      publicSignals: entryProof.publicSignals,
-      nonce: entryProof.nonce,
-      tokenId: entryProof.tokenId,
-      vcHash: entryProof.vcHash,
-    };
-
-    await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+    await navigator.clipboard.writeText(JSON.stringify(entryProof.verifyProofBody, null, 2));
     setStatusMessage('/verify-proof 요청 payload를 클립보드에 복사했습니다.');
   };
 
@@ -195,8 +278,8 @@ export default function EntryProofPage() {
         <p className="eyebrow">04 Entry Proof</p>
         <h2>입장 증명 생성</h2>
         <p>
-          C의 Gate QR payload를 입력받고, 사용 가능한 티켓과 VC를 기반으로 입장 검증용
-          Groth16 proof payload를 생성합니다.
+          C 웹 Gate QR의 JSON을 읽고 nonce 십진값과 endpoint를 사용해 Groth16 proof를 생성한 뒤,
+          서버의 verify-proof endpoint로 직접 제출합니다.
         </p>
       </div>
 
@@ -209,12 +292,12 @@ export default function EntryProofPage() {
           <div className="visibility-column private">
             <span className="visibility-label">기기에만 남음</span>
             <strong>생년월일, 원본 VC, 개인키</strong>
-            <p>birthdate는 witness로만 쓰이고 네트워크 요청에 포함되지 않습니다.</p>
+            <p>birthdate는 witness로만 쓰이고 네트워크 요청에는 포함되지 않습니다.</p>
           </div>
           <div className="visibility-column public">
             <span className="visibility-label">서버로 전송됨</span>
             <strong>proof + publicSignals</strong>
-            <p>[isAdult, vcHash, nonce, tokenId, currentDate]만 검증자에게 전달됩니다.</p>
+            <p>[isAdult, vcHash, nonce, tokenId, currentDate]만 검증자에게 전달합니다.</p>
           </div>
         </div>
       </section>
@@ -223,7 +306,7 @@ export default function EntryProofPage() {
         <section className="panel form-panel">
           <div className="section-title">
             <h3>Gate QR Payload 입력</h3>
-            <span>C Gate 화면 QR을 스캔한 JSON 전체를 붙여넣는 영역입니다.</span>
+            <span>GatePage QR의 JSON 문자열 전체를 붙여넣습니다. nonceHex는 사용하지 않습니다.</span>
           </div>
 
           <label>
@@ -231,7 +314,7 @@ export default function EntryProofPage() {
             <textarea
               value={challengeText}
               onChange={(event) => setChallengeText(event.target.value)}
-              placeholder='{"type":"QRushGateChallenge","nonce":"field decimal","nonceHex":"...","endpoint":"/api/gate/verify-proof","expiresIn":30}'
+              placeholder='{"type":"QRushGateChallenge","nonce":"field decimal","endpoint":"http://192.168.0.20:3000/api/gate/verify-proof","expiresIn":30}'
               rows={10}
             />
           </label>
@@ -253,7 +336,7 @@ export default function EntryProofPage() {
               </div>
               <div>
                 <span>endpoint</span>
-                <strong>{parsedChallenge.endpoint || '/api/gate/verify-proof'}</strong>
+                <strong>{parsedChallenge.endpoint}</strong>
               </div>
             </div>
           )}
@@ -336,8 +419,11 @@ export default function EntryProofPage() {
         </div>
 
         <div className="button-row">
-          <button className="primary-button" type="button" onClick={createEntryProof} disabled={isGenerating}>
+          <button className="secondary-button" type="button" onClick={createEntryProof} disabled={isGenerating}>
             {isGenerating ? 'proof 생성 중' : '입장 proof 생성'}
+          </button>
+          <button className="primary-button" type="button" onClick={submitEntryProof} disabled={isGenerating || isSubmitting}>
+            {isSubmitting ? 'Gate 제출 중' : 'Gate로 proof 제출'}
           </button>
           <button className="secondary-button" type="button" onClick={copyEntryProof} disabled={!entryProof}>
             /verify-proof payload 복사
@@ -348,6 +434,16 @@ export default function EntryProofPage() {
         {error && <p className="error-text">{error}</p>}
       </section>
 
+      {gateResult && (
+        <section className={gateResult.ok ? 'panel status-panel success' : 'panel status-panel warning'}>
+          <div>
+            <h3>{gateResult.ok ? 'Gate 승인' : 'Gate 거부'}</h3>
+            <p>HTTP {gateResult.status}</p>
+          </div>
+        </section>
+      )}
+
+      <JsonPreview title="Gate Verify Result" data={gateResult} />
       <JsonPreview title="Entry Proof Payload" data={entryProof} />
     </section>
   );
