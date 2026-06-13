@@ -72,9 +72,19 @@ function parseBookingQr(rawValue) {
   const raw = rawValue.trim();
   if (!raw) throw new Error('예매 QR 값을 입력해 주세요.');
 
-  const url = new URL(raw);
-  if (url.protocol !== 'qrush:' || url.hostname !== 'create-vp') {
-    throw new Error('qrush://create-vp 형식의 예매 QR만 처리할 수 있습니다.');
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error('예매 QR URL 형식이 올바르지 않습니다.');
+  }
+
+  const isCustomScheme = url.protocol === 'qrush:' && url.hostname === 'create-vp';
+  const isHttpFallback =
+    (url.protocol === 'http:' || url.protocol === 'https:') && url.pathname.replace(/\/$/, '') === '/vp';
+
+  if (!isCustomScheme && !isHttpFallback) {
+    throw new Error('qrush://create-vp 또는 http(s)://.../vp 형식의 예매 QR만 처리할 수 있습니다.');
   }
 
   const eventId = url.searchParams.get('eventId');
@@ -110,14 +120,9 @@ function getInitialBookingQrText() {
 
   const eventId = params.get('eventId');
   const seat = params.get('seat');
-  const callback = params.get('callback');
   if (!eventId || !seat) return '';
 
-  const url = new URL('qrush://create-vp');
-  url.searchParams.set('eventId', eventId);
-  url.searchParams.set('seat', seat);
-  if (callback) url.searchParams.set('callback', callback);
-  return url.toString();
+  return window.location.href;
 }
 
 function getInitialBookingForm() {

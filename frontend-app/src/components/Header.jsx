@@ -10,7 +10,7 @@ export default function Header({ currentPath, navigate }) {
   return (
     <aside className="sidebar">
       <div>
-        <p className="eyebrow">QRush Holder</p>
+        <p className="eyebrow">QRush app</p>
         <h1>사용자 지갑 앱</h1>
         <p className="sidebar-desc">
           VC 저장, VP 생성, 입장 증명 생성을 담당하는 Holder 프로토타입입니다.
@@ -30,10 +30,6 @@ export default function Header({ currentPath, navigate }) {
         ))}
       </nav>
 
-      <div className="sidebar-note">
-        <strong>D 담당 범위</strong>
-        <span>VC 수신/저장, 예매용 VP 생성, Gate nonce 기반 입장 proof 생성</span>
-      </div>
     </aside>
   );
 }

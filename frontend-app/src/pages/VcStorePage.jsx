@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import JsonPreview from '../components/JsonPreview.jsx';
 import { sampleVcPayload } from '../data/mockWalletData.js';
 import { clearVc, loadVc, saveVc } from '../services/storage.js';
@@ -15,11 +15,72 @@ function getSubjectId(payload) {
   return payload?.vc?.credentialSubject?.id || '-';
 }
 
+function decodePayload64(value) {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+  const binary = atob(padded);
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+function getIncomingVcText() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const payload64 = params.get('payload64');
+    if (payload64) return decodePayload64(payload64);
+
+    return params.get('payload') || params.get('vc') || '';
+  } catch {
+    return '';
+  }
+}
+
+function cleanVcPayloadFromUrl() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete('payload64');
+  url.searchParams.delete('payload');
+  url.searchParams.delete('vc');
+  window.history.replaceState({}, '', `${url.pathname}${url.search}${url.hash}`);
+}
+
 export default function VcStorePage() {
-  const [vcText, setVcText] = useState('');
+  const incomingVcText = getIncomingVcText();
+  const [vcText, setVcText] = useState(incomingVcText);
   const [savedVc, setSavedVc] = useState(() => loadVc(null));
   const [statusMessage, setStatusMessage] = useState('');
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!incomingVcText) return;
+
+    let parsed;
+    let errorMessage = '';
+    try {
+      parsed = JSON.parse(incomingVcText);
+
+      if (!parsed.vc || !parsed.vcHash) {
+        throw new Error('VC JSON은 { vc, vcHash } 구조여야 합니다.');
+      }
+    } catch (nextError) {
+      errorMessage = nextError.message || 'VC QR 링크 처리에 실패했습니다.';
+    }
+
+    const timer = window.setTimeout(() => {
+      if (errorMessage) {
+        setError(errorMessage);
+        setStatusMessage('');
+        return;
+      }
+
+      saveVc(parsed);
+      setSavedVc(parsed);
+      setStatusMessage('VC QR 링크에서 VC를 읽고 지갑에 저장했습니다.');
+      setError('');
+      cleanVcPayloadFromUrl();
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [incomingVcText]);
 
   const fillSample = () => {
     setVcText(JSON.stringify(sampleVcPayload, null, 2));

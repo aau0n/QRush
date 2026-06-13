@@ -3,13 +3,31 @@ import QRCodePanel from '../components/QRCodePanel.jsx';
 import { registerVcHash } from '../api/qrushApi.js';
 import { computeVcHash, randomId, randomVcSecret, stableJson, toYyyymmdd } from '../utils/hash.js';
 import { loadIssuedVcs, saveIssuedVcs } from '../utils/vcStore.js';
-import { ISSUER_ADDRESS, IS_MOCK } from '../config.js';
+import { DAPP_BASE_URL, ISSUER_ADDRESS, IS_MOCK } from '../config.js';
 
 const initialForm = {
   name: '',
   birthdate: '',
   subject: '',
 };
+
+function encodePayload64(value) {
+  const bytes = new TextEncoder().encode(value);
+  let binary = '';
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function buildVcWalletUrl(credentialJson) {
+  if (!credentialJson) return '';
+
+  const url = new URL(`${DAPP_BASE_URL}/vc`);
+  url.searchParams.set('payload64', encodePayload64(credentialJson));
+  return url.toString();
+}
 
 export default function IssuerPage() {
   const [form, setForm] = useState(initialForm);
@@ -103,6 +121,7 @@ export default function IssuerPage() {
         registerTxHash: issued.registerTxHash,
       })
     : '';
+  const credentialLink = buildVcWalletUrl(credentialJson);
 
   return (
     <section className="content-stack">
@@ -168,7 +187,7 @@ export default function IssuerPage() {
                 <span>VC 발급 + vcHash 등록 완료</span>
                 <code>{issued.vcHash.slice(0, 18)}…</code>
               </div>
-              <QRCodePanel label="D 앱에서 스캔할 VC QR" value={credentialJson} />
+              <QRCodePanel label="D 앱에서 스캔할 VC QR" value={credentialLink} />
             </>
           ) : (
             <div className="empty-state">
