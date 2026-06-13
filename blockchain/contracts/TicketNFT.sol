@@ -130,21 +130,19 @@ contract TicketNFT is ERC721, Ownable {
      *
      * @param tokenId    NFT 티켓 토큰 ID
      * @param nonce      게이트가 생성한 nonce (QR에 포함된 값)
-     * @param vcHash     사용자 VC 해시 (pubSignals[0])
-     * @param pA         ZKP proof.pi_a
-     * @param pB         ZKP proof.pi_b
-     * @param pC         ZKP proof.pi_c
+     * @param vcHash       사용자 VC 해시 (pubSignals[1])
+     * @param currentDate  proof 생성 시 YYYYMMDD (pubSignals[4])
+     * @param pA           ZKP proof.pi_a
+     * @param pB           ZKP proof.pi_b
+     * @param pC           ZKP proof.pi_c
      *
-     * pubSignals 구성:
-     *   [0] = vcHash
-     *   [1] = nonce
-     *   [2] = tokenId
-     *   [3] = isAdult (1 = 성인)
+     * pubSignals: [isAdult, vcHash, nonce, tokenId, currentDate]
      */
     function useTicket(
         uint256 tokenId,
         uint256 nonce,
         bytes32 vcHash,
+        uint256 currentDate,
         uint[2] calldata pA,
         uint[2][2] calldata pB,
         uint[2] calldata pC
@@ -163,11 +161,12 @@ contract TicketNFT is ERC721, Ownable {
         require(vcRegistry.isValidVC(vcHash), "TicketNFT: invalid VC");
 
         // ── 4. ZKP 증명 검증 ───────────────────────────────────────────────
-        uint[4] memory pubSignals = [
-            uint(vcHash),   // [0] vcHash
-            nonce,          // [1] nonce
-            tokenId,        // [2] tokenId
-            1               // [3] isAdult — 회로에서 증명된 값; 여기선 1 고정(성인 공연 기준)
+        uint[5] memory pubSignals = [
+            1,                  // [0] isAdult
+            uint256(vcHash),    // [1] vcHash
+            nonce,              // [2] nonce
+            tokenId,            // [3] tokenId
+            currentDate         // [4] currentDate
         ];
         require(
             zkpVerifier.verifyProof(pA, pB, pC, pubSignals),

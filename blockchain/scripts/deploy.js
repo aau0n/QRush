@@ -6,8 +6,12 @@ const { ethers } = require("hardhat");
 const fs = require("fs");
 const path = require("path");
 
+// Hardhat node account #1 — A(예매 서버) 기본값
+const DEFAULT_SERVER_ADDRESS = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
+
 async function main() {
   const [deployer] = await ethers.getSigners();
+
   console.log("=".repeat(60));
   console.log("QRush Contract Deployment");
   console.log("=".repeat(60));
@@ -15,7 +19,6 @@ async function main() {
   console.log(`Balance  : ${ethers.formatEther(await ethers.provider.getBalance(deployer.address))} ETH`);
   console.log("");
 
-  // ── 1. IssuerRegistry ────────────────────────────────────────────────────
   console.log("1/4 Deploying IssuerRegistry...");
   const IssuerRegistry = await ethers.getContractFactory("IssuerRegistry");
   const issuerRegistry = await IssuerRegistry.deploy();
@@ -23,7 +26,6 @@ async function main() {
   const issuerRegistryAddr = await issuerRegistry.getAddress();
   console.log(`    ✓ IssuerRegistry : ${issuerRegistryAddr}`);
 
-  // ── 2. VCRegistry ────────────────────────────────────────────────────────
   console.log("2/4 Deploying VCRegistry...");
   const VCRegistry = await ethers.getContractFactory("VCRegistry");
   const vcRegistry = await VCRegistry.deploy(issuerRegistryAddr);
@@ -31,16 +33,13 @@ async function main() {
   const vcRegistryAddr = await vcRegistry.getAddress();
   console.log(`    ✓ VCRegistry     : ${vcRegistryAddr}`);
 
-  // ── 3. ZKPVerifier ───────────────────────────────────────────────────────
-  // TODO: A의 verifier.sol이 준비되면 이 부분을 실제 Groth16 verifier로 교체
-  console.log("3/4 Deploying ZKPVerifier (stub)...");
+  console.log("3/4 Deploying ZKPVerifier...");
   const ZKPVerifier = await ethers.getContractFactory("ZKPVerifier");
   const zkpVerifier = await ZKPVerifier.deploy();
   await zkpVerifier.waitForDeployment();
   const zkpVerifierAddr = await zkpVerifier.getAddress();
   console.log(`    ✓ ZKPVerifier    : ${zkpVerifierAddr}`);
 
-  // ── 4. TicketNFT ─────────────────────────────────────────────────────────
   console.log("4/4 Deploying TicketNFT...");
   const TicketNFT = await ethers.getContractFactory("TicketNFT");
   const ticketNFT = await TicketNFT.deploy(zkpVerifierAddr, vcRegistryAddr);
@@ -48,23 +47,32 @@ async function main() {
   const ticketNFTAddr = await ticketNFT.getAddress();
   console.log(`    ✓ TicketNFT      : ${ticketNFTAddr}`);
 
-  // ── 초기 설정 ────────────────────────────────────────────────────────────
   console.log("\nPost-deploy setup...");
+  const serverAddress = process.env.SERVER_MINTER_ADDRESS || DEFAULT_SERVER_ADDRESS;
+  await ticketNFT.authorizeMinter(serverAddress);
+  console.log(`    ✓ Minter authorized: ${serverAddress}`);
 
-  // 예매 서버(deployer)를 minter로 등록
-  await ticketNFT.authorizeMinter(deployer.address);
-  console.log(`    ✓ Minter authorized: ${deployer.address}`);
+  await issuerRegistry.registerIssuer(deployer.address, "QRush Admin");
+  console.log(`    ✓ Issuer registered: ${deployer.address}`);
 
-  // ── 주소 파일 저장 (A, C, D 공유용) ──────────────────────────────────────
+  const network = await ethers.provider.getNetwork();
   const addresses = {
-    network: (await ethers.provider.getNetwork()).name,
+    network: network.name,
+    chainId: Number(network.chainId),
+    rpcUrl: "http://127.0.0.1:8545",
     deployedAt: new Date().toISOString(),
     contracts: {
       IssuerRegistry: issuerRegistryAddr,
-      VCRegistry:     vcRegistryAddr,
-      ZKPVerifier:    zkpVerifierAddr,
-      TicketNFT:      ticketNFTAddr,
+      VCRegistry: vcRegistryAddr,
+      ZKPVerifier: zkpVerifierAddr,
+      TicketNFT: ticketNFTAddr,
     },
+    serverWallet: {
+      address: serverAddress,
+      note: "Hardhat account #1 private key — A에게 별도 전달 (Git에 올리지 말 것)",
+    },
+    trustedIssuer: deployer.address,
+    pubSignalsOrder: ["isAdult", "vcHash", "nonce", "tokenId", "currentDate"],
   };
 
   const outputPath = path.join(__dirname, "../deployed-addresses.json");
@@ -72,9 +80,9 @@ async function main() {
 
   console.log("\n" + "=".repeat(60));
   console.log("Deployment complete!");
-  console.log("Contract addresses saved to: deployed-addresses.json");
+  console.log(`Saved: ${outputPath}`);
   console.log("=".repeat(60));
-  console.log(JSON.stringify(addresses.contracts, null, 2));
+  console.log(JSON.stringify(addresses, null, 2));
 }
 
 main()

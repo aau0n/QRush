@@ -1,0 +1,24 @@
+{
+  "network": "hardhat",
+  "chainId": 31337,
+  "rpcUrl": "http://127.0.0.1:8545",
+  "deployedAt": "2026-06-13T08:32:01.227Z",
+  "contracts": {
+    "IssuerRegistry": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+    "VCRegistry": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+    "ZKPVerifier": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+    "TicketNFT": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9"
+  },
+  "serverWallet": {
+    "address": "0x70997970C51812dc3A010C7d01b50e0d17dc79C8",
+    "note": "Hardhat account #1 private key — A에게 별도 전달 (Git에 올리지 말 것)"
+  },
+  "trustedIssuer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+  "pubSignalsOrder": [
+    "isAdult",
+    "vcHash",
+    "nonce",
+    "tokenId",
+    "currentDate"
+  ]
+}

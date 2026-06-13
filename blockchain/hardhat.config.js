@@ -3,8 +3,9 @@ require("@nomicfoundation/hardhat-toolbox");
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
   solidity: {
-    version: "0.8.20",
+    version: "0.8.24",
     settings: {
+      evmVersion: "cancun",
       optimizer: {
         enabled: true,
         runs: 200,
@@ -12,14 +13,12 @@ module.exports = {
     },
   },
   networks: {
-    // 로컬 개발 네트워크
     localhost: {
       url: "http://127.0.0.1:8545",
     },
     hardhat: {
-      // 공연장 서버 다운 시뮬레이션용: 블록타임 15초로 설정
       mining: {
-        interval: 0,
+        auto: true,
       },
     },
   },
