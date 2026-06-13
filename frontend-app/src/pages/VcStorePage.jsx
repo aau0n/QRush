@@ -3,6 +3,32 @@ import JsonPreview from '../components/JsonPreview.jsx';
 import { sampleVcPayload } from '../data/mockWalletData.js';
 import { clearVc, loadVc, saveVc } from '../services/storage.js';
 
+function getInitialVcText() {
+  const params = new URLSearchParams(window.location.search);
+  const payload64 = params.get('payload64');
+  const payload = params.get('payload') || params.get('vc');
+
+  if (payload64) {
+    try {
+      const base64 = payload64.replaceAll('-', '+').replaceAll('_', '/');
+      const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=');
+      const binary = atob(padded);
+      const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+      return JSON.stringify(JSON.parse(new TextDecoder().decode(bytes)), null, 2);
+    } catch {
+      return '';
+    }
+  }
+
+  if (!payload) return '';
+
+  try {
+    return JSON.stringify(JSON.parse(payload), null, 2);
+  } catch {
+    return payload;
+  }
+}
+
 function getSubjectName(payload) {
   return payload?.vc?.credentialSubject?.name || '-';
 }
@@ -16,7 +42,7 @@ function getSubjectId(payload) {
 }
 
 export default function VcStorePage() {
-  const [vcText, setVcText] = useState('');
+  const [vcText, setVcText] = useState(getInitialVcText);
   const [savedVc, setSavedVc] = useState(() => loadVc(null));
   const [statusMessage, setStatusMessage] = useState('');
   const [error, setError] = useState('');
