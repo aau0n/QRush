@@ -164,6 +164,10 @@ export default function IssuerPage() {
               <dd><code>{issued.registerTxHash || '(mock)'}</code></dd>
             </div>
           </dl>
+          <p className="disclosure-note">
+            🔒 서버에는 <strong>vcHash(해시)만 등록</strong>됩니다. 원본 생년월일·vcSecret은
+            사용자 기기에만 존재하며, 해시에서 원본을 복원할 수 없습니다.
+          </p>
           <pre>{credentialJson}</pre>
         </section>
       )}

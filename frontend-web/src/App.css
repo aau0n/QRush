@@ -623,3 +623,104 @@ dd {
   font-size: 0.82rem;
   padding: 2px 6px;
 }
+
+/* --- C 추가: 영지식·보안 강조 요소 --- */
+.privacy-badge {
+  align-self: flex-start;
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: 999px;
+  color: #047857;
+  font-size: 0.82rem;
+  font-weight: 700;
+  margin: 4px 0 8px;
+  padding: 6px 14px;
+}
+
+.disclosure-note {
+  background: #f8fafc;
+  border-left: 3px solid #6366f1;
+  border-radius: 6px;
+  color: #334155;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  margin: 12px 0;
+  padding: 10px 12px;
+}
+
+.deny-reason {
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: 8px;
+  font-size: 0.9rem;
+  margin: 10px 0 0;
+  padding: 8px 12px;
+}
+
+.reveal-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr 1fr;
+  margin: 18px 0;
+  width: 100%;
+}
+
+.reveal-col {
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.reveal-col h4 {
+  font-size: 0.85rem;
+  margin: 0 0 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.reveal-col.seen {
+  background: rgba(16, 185, 129, 0.14);
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.reveal-col.hidden {
+  background: rgba(148, 163, 184, 0.16);
+  border: 1px solid rgba(148, 163, 184, 0.4);
+}
+
+.reveal-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-bottom: 8px;
+}
+
+.reveal-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  opacity: 0.9;
+}
+
+.reveal-item code {
+  font-size: 0.82rem;
+  word-break: break-all;
+}
+
+.reveal-item small {
+  font-size: 0.7rem;
+  opacity: 0.7;
+}
+
+.vp-checklist {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  text-align: left;
+}
+
+.vp-checklist li {
+  font-size: 0.88rem;
+  margin: 6px 0;
+}
+
+.vp-checklist small {
+  opacity: 0.7;
+}

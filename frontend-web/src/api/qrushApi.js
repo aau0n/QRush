@@ -130,11 +130,13 @@ export async function getTicketsByWallet(walletAddress) {
 }
 
 // GET /api/gate/result/:nonce  (C 게이트 단말기 폴링)
-// A가 verify-proof 결과를 nonce(hex)로 저장해두면 게이트가 폴링해 초록/빨강 표시.
+// A가 verify-proof 결과를 nonce(십진 field)로 저장해두면 게이트가 폴링해 초록/빨강 표시.
 // C가 기대하는 응답(권장 — A는 이 형태로 구현):
 //   대기:  { decided: false }            또는 HTTP 404
-//   입장:  { decided: true, entry: true,  tokenId, txHash }
-//   거부:  { decided: true, entry: false, reason }
+//   입장:  { decided: true, entry: true,  tokenId, txHash, publicSignals }
+//   거부:  { decided: true, entry: false, reason, publicSignals? }
+// publicSignals[isAdult, vcHash, nonce, tokenId, currentDate]가 오면
+// 게이트의 '검증자가 본 것' 패널에 그대로 노출한다(없어도 동작).
 // ※ {status:'waiting'|'allowed'|'denied'} 형태도 호환되게 정규화한다.
 export async function getGateResult(nonce) {
   if (IS_MOCK || !nonce) return { decided: false };
@@ -152,7 +154,14 @@ export async function getGateResult(nonce) {
       const allowed = body.status === 'allowed';
       const denied = body.status === 'denied';
       if (!allowed && !denied) return { decided: false };
-      return { decided: true, entry: allowed, reason: body.reason, tokenId: body.tokenId, txHash: body.txHash };
+      return {
+        decided: true,
+        entry: allowed,
+        reason: body.reason,
+        tokenId: body.tokenId,
+        txHash: body.txHash,
+        publicSignals: body.publicSignals,
+      };
     }
 
     if (typeof body.entry === 'boolean') {
@@ -162,10 +171,16 @@ export async function getGateResult(nonce) {
         reason: body.reason || body.error,
         tokenId: body.tokenId,
         txHash: body.txHash,
+        publicSignals: body.publicSignals,
       };
     }
 
-    return { decided: Boolean(body.decided), entry: Boolean(body.entry), reason: body.reason };
+    return {
+      decided: Boolean(body.decided),
+      entry: Boolean(body.entry),
+      reason: body.reason,
+      publicSignals: body.publicSignals,
+    };
   } catch {
     // 엔드포인트 미구현/네트워크 오류 — 조용히 대기 상태 유지(mock 버튼 폴백).
     return { decided: false };

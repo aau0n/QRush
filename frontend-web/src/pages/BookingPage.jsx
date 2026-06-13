@@ -177,6 +177,11 @@ export default function BookingPage() {
           <span>D 앱이 보낸 VP+서명을 붙여넣거나, 아래에서 셀프 테스트용 VP를 만들 수 있습니다.</span>
         </div>
 
+        <p className="disclosure-note">
+          🪪 <strong>예매 단계는 본인확인을 위해 이름·나이를 선택적으로 공개</strong>합니다.
+          (입장 단계는 영지식 증명 — 신원을 전혀 공개하지 않습니다.)
+        </p>
+
         <label>
           (셀프 테스트) 발급 페이지 VC JSON 붙여넣기
           <textarea
@@ -224,6 +229,13 @@ export default function BookingPage() {
         {bookingResult && (
           <div className={bookingResult.ok ? 'status-box allowed' : 'status-box denied'}>
             <h3>{bookingResult.message}</h3>
+            {bookingResult.ok && (
+              <ul className="vp-checklist">
+                <li>✓ 발급기관이 신뢰할 수 있는 기관인가 <small>(IssuerRegistry)</small></li>
+                <li>✓ VC가 위·변조되지 않았는가 <small>(VCRegistry)</small></li>
+                <li>✓ VP 제출자가 본인이 맞는가 <small>(서명 ecrecover)</small></li>
+              </ul>
+            )}
             {bookingResult.tokenId && <p>tokenId: {bookingResult.tokenId}</p>}
             {bookingResult.txHash && <code>{bookingResult.txHash}</code>}
           </div>
