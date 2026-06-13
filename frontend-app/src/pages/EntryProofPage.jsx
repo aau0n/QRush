@@ -20,6 +20,16 @@ const sampleGateChallenge = {
   chainTx: '0xsample',
 };
 
+const circuitMeta = {
+  scheme: 'Groth16',
+  curve: 'BN254',
+  constraints: 42,
+  privateInputs: 1,
+  publicInputs: 4,
+  outputs: 1,
+  publicSignals: 5,
+};
+
 function getInitialSelectedTokenId(tickets) {
   const selectedTicketFromWallet = loadSelectedTicket(null);
   const selectedTicketStillExists = tickets.find(
@@ -35,11 +45,13 @@ function getInitialSelectedTokenId(tickets) {
 }
 
 async function buildProofPayload({ challenge, ticket, profile, savedVc }) {
+  const startedAt = performance.now();
   const { input, proof, publicSignals } = await generateEntryProof({
     challenge,
     ticket,
     savedVc,
   });
+  const generatedMs = Math.round(performance.now() - startedAt);
 
   return {
     type: 'QRushEntryProof',
@@ -53,6 +65,10 @@ async function buildProofPayload({ challenge, ticket, profile, savedVc }) {
     proof,
     publicSignals,
     proofInput: input,
+    proofMeta: {
+      ...circuitMeta,
+      generatedMs,
+    },
     verifyProofBody: {
       proof,
       publicSignals,
@@ -150,7 +166,7 @@ export default function EntryProofPage() {
 
       setEntryProof(proofPayload);
       saveLastEntryProof(proofPayload);
-      setStatusMessage('ZKP entry proof payload를 생성했습니다.');
+      setStatusMessage(`ZKP entry proof를 생성했습니다. (${proofPayload.proofMeta.generatedMs}ms)`);
     } catch (nextError) {
       setError(nextError.message || 'ZKP proof 생성에 실패했습니다.');
     } finally {
@@ -179,10 +195,29 @@ export default function EntryProofPage() {
         <p className="eyebrow">04 Entry Proof</p>
         <h2>입장 증명 생성</h2>
         <p>
-          C의 Gate 화면 QR payload를 입력받고, 사용 가능한 티켓과 VC를 기반으로 입장 검증용
+          C의 Gate QR payload를 입력받고, 사용 가능한 티켓과 VC를 기반으로 입장 검증용
           Groth16 proof payload를 생성합니다.
         </p>
       </div>
+
+      <section className="panel privacy-panel">
+        <div className="section-title">
+          <h3>기기 밖으로 나가는 것과 안 나가는 것</h3>
+          <span>입장 단계에서는 신원을 공개하지 않고 자격만 증명합니다.</span>
+        </div>
+        <div className="visibility-grid">
+          <div className="visibility-column private">
+            <span className="visibility-label">기기에만 남음</span>
+            <strong>생년월일, 원본 VC, 개인키</strong>
+            <p>birthdate는 witness로만 쓰이고 네트워크 요청에 포함되지 않습니다.</p>
+          </div>
+          <div className="visibility-column public">
+            <span className="visibility-label">서버로 전송됨</span>
+            <strong>proof + publicSignals</strong>
+            <p>[isAdult, vcHash, nonce, tokenId, currentDate]만 검증자에게 전달됩니다.</p>
+          </div>
+        </div>
+      </section>
 
       <div className="two-column">
         <section className="panel form-panel">
@@ -235,6 +270,39 @@ export default function EntryProofPage() {
           </div>
         </section>
       </div>
+
+      <section className="panel proof-meta-panel">
+        <div className="section-title">
+          <h3>실제 증명 메타데이터</h3>
+          <span>mock payload가 아니라 로컬 wasm/zkey로 생성하는 proof입니다.</span>
+        </div>
+        <div className="proof-meta-grid">
+          <div>
+            <span>Protocol</span>
+            <strong>{circuitMeta.scheme}</strong>
+          </div>
+          <div>
+            <span>Curve</span>
+            <strong>{circuitMeta.curve}</strong>
+          </div>
+          <div>
+            <span>Constraints</span>
+            <strong>{circuitMeta.constraints}</strong>
+          </div>
+          <div>
+            <span>Signals</span>
+            <strong>{circuitMeta.publicSignals} public</strong>
+          </div>
+          <div>
+            <span>Private Inputs</span>
+            <strong>{circuitMeta.privateInputs}</strong>
+          </div>
+          <div>
+            <span>Last Generation</span>
+            <strong>{entryProof?.proofMeta?.generatedMs ? `${entryProof.proofMeta.generatedMs}ms` : '-'}</strong>
+          </div>
+        </div>
+      </section>
 
       <section className="panel form-panel">
         <div className="section-title">

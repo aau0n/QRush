@@ -26,6 +26,10 @@ const NonceSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  txHash: {
+    type: String,
+    default: null
+  },
   publicSignals: {
     type: [String],
     default: null

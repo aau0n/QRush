@@ -48,30 +48,26 @@ exports.verifyVP = async (req, res) => {
       return res.status(400).json({ success: false, error: "vp and signature are required" });
     }
 
-    // 1. 전자서명 검증: 서명자 == vp.holder
-    let recovered;
+    // 세 가지 체크를 각각 독립적으로 평가해서 결과를 함께 반환
+    // (예매 화면의 3대 체크 ✓/✗를 실제 검증결과로 표시하기 위함)
+    let signatureValid = false;
     try {
-      recovered = ethers.verifyMessage(JSON.stringify(vp), signature);
+      const recovered = ethers.verifyMessage(JSON.stringify(vp), signature);
+      signatureValid = recovered.toLowerCase() === String(vp.holder).toLowerCase();
     } catch (e) {
-      return res.status(400).json({ success: false, error: "Invalid signature format" });
-    }
-    if (recovered.toLowerCase() !== String(vp.holder).toLowerCase()) {
-      return res.status(401).json({ success: false, verified: false, error: "Signature does not match holder" });
+      signatureValid = false;
     }
 
-    // 2. 발급기관 신뢰 여부 (IssuerRegistry.isTrusted)
-    const trusted = await blockchain.isTrustedIssuer(vp.issuer);
-    if (!trusted) {
-      return res.status(401).json({ success: false, verified: false, error: "Issuer is not trusted" });
-    }
+    const issuerTrusted = await blockchain.isTrustedIssuer(vp.issuer).catch(() => false);
+    const vcValid = await blockchain.isValidVC(vp.vcHash).catch(() => false);
 
-    // 3. VC 해시 유효성 (VCRegistry.isValid — 폐기 여부 포함)
-    const valid = await blockchain.isValidVC(vp.vcHash);
-    if (!valid) {
-      return res.status(401).json({ success: false, verified: false, error: "VC is not valid (not registered or revoked)" });
-    }
+    const verified = signatureValid && issuerTrusted && vcValid;
+    const checks = { signatureValid, issuerTrusted, vcValid };
 
-    res.json({ success: true, verified: true, holder: recovered });
+    if (!verified) {
+      return res.status(401).json({ success: false, verified: false, ...checks });
+    }
+    res.json({ success: true, verified: true, holder: vp.holder, ...checks });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
