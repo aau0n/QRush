@@ -6,6 +6,9 @@ const { ethers } = require("hardhat");
 const fs = require("fs");
 const path = require("path");
 
+// Hardhat node account #1 — backend SERVER_PRIVATE_KEY 기본값
+const DEFAULT_SERVER_ADDRESS = "0x70997970C51812dc3A010C7d01b50e0d17dc79C8";
+
 async function main() {
   const [deployer] = await ethers.getSigners();
   console.log("=".repeat(60));
@@ -50,21 +53,39 @@ async function main() {
 
   // ── 초기 설정 ────────────────────────────────────────────────────────────
   console.log("\nPost-deploy setup...");
+  const serverAddress = process.env.SERVER_MINTER_ADDRESS || DEFAULT_SERVER_ADDRESS;
 
-  // 예매 서버(deployer)를 minter로 등록
-  await ticketNFT.authorizeMinter(deployer.address);
-  console.log(`    ✓ Minter authorized: ${deployer.address}`);
+  // C 발급기관(= deployer, 0xf39F...) 온체인 신뢰등록 — verify-vp / register-vc 필수
+  await issuerRegistry.registerIssuer(deployer.address, "QRush Admin");
+  console.log(`    ✓ Issuer registered: ${deployer.address}`);
+
+  await issuerRegistry.registerIssuer(serverAddress, "QRush Server");
+  console.log(`    ✓ Issuer registered: ${serverAddress} (register-vc용)`);
+
+  await ticketNFT.authorizeMinter(serverAddress);
+  console.log(`    ✓ Minter authorized: ${serverAddress}`);
+
+  await ticketNFT.transferOwnership(serverAddress);
+  console.log(`    ✓ TicketNFT ownership → ${serverAddress} (registerNonce용)`);
 
   // ── 주소 파일 저장 (A, C, D 공유용) ──────────────────────────────────────
+  const network = await ethers.provider.getNetwork();
   const addresses = {
-    network: (await ethers.provider.getNetwork()).name,
+    network: network.name,
+    chainId: Number(network.chainId),
+    rpcUrl: "http://127.0.0.1:8545",
     deployedAt: new Date().toISOString(),
     contracts: {
       IssuerRegistry: issuerRegistryAddr,
-      VCRegistry:     vcRegistryAddr,
-      ZKPVerifier:    zkpVerifierAddr,
-      TicketNFT:      ticketNFTAddr,
+      VCRegistry: vcRegistryAddr,
+      ZKPVerifier: zkpVerifierAddr,
+      TicketNFT: ticketNFTAddr,
     },
+    serverWallet: {
+      address: serverAddress,
+      note: "Hardhat account #1 — backend .env SERVER_PRIVATE_KEY와 쌍",
+    },
+    trustedIssuer: deployer.address,
   };
 
   const outputPath = path.join(__dirname, "../deployed-addresses.json");

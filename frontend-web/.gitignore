@@ -1,7 +1,9 @@
 node_modules/
 node_modules
+dist/
+dist-ssr/
 .env
 .env.local
 .DS_Store
-circuits/build/*.ptau
-circuits/build/*_0000.zkey
+*.local
+.vite/
