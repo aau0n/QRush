@@ -3,7 +3,7 @@ import QRCodePanel from '../components/QRCodePanel.jsx';
 import { registerVcHash } from '../api/qrushApi.js';
 import { computeVcHash, randomId, randomVcSecret, stableJson, toYyyymmdd } from '../utils/hash.js';
 import { loadIssuedVcs, saveIssuedVcs } from '../utils/vcStore.js';
-import { DAPP_BASE_URL, ISSUER_ADDRESS, IS_MOCK } from '../config.js';
+import { DAPP_BASE_URL, ISSUER_ADDRESS, IS_MOCK, buildMetaMaskDappUrl } from '../config.js';
 
 const initialForm = {
   name: '',
@@ -26,7 +26,7 @@ function buildVcWalletUrl(credentialJson) {
 
   const url = new URL(`${DAPP_BASE_URL}/vc`);
   url.searchParams.set('payload64', encodePayload64(credentialJson));
-  return url.toString();
+  return buildMetaMaskDappUrl(url.toString());
 }
 
 export default function IssuerPage() {

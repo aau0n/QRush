@@ -68,6 +68,21 @@ function stringifyVpForSignature(vp) {
   return JSON.stringify(vp);
 }
 
+function delay(ms) {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
+async function getEthereumProvider() {
+  for (let index = 0; index < 20; index += 1) {
+    if (window.ethereum) return window.ethereum;
+    await delay(100);
+  }
+
+  throw new Error('현재 브라우저에 MetaMask 연결 객체가 없습니다. Safari로 열린 상태라면 MetaMask 앱 브라우저에서 이 페이지를 열어주세요.');
+}
+
 function parseBookingQr(rawValue) {
   const raw = rawValue.trim();
   if (!raw) throw new Error('예매 QR 값을 입력해 주세요.');
@@ -187,11 +202,9 @@ export default function VpCreatePage() {
     setStatusMessage('');
 
     try {
-      if (!window.ethereum) {
-        throw new Error('MetaMask가 설치되어 있지 않습니다.');
-      }
+      const ethereum = await getEthereumProvider();
 
-      const accounts = await window.ethereum.request({
+      const accounts = await ethereum.request({
         method: 'eth_requestAccounts',
       });
 
@@ -269,9 +282,7 @@ export default function VpCreatePage() {
     setStatusMessage('');
 
     try {
-      if (!window.ethereum) {
-        throw new Error('MetaMask가 설치되어 있지 않습니다.');
-      }
+      const ethereum = await getEthereumProvider();
 
       if (!profile) {
         throw new Error('Holder profile이 없습니다.');
@@ -281,7 +292,7 @@ export default function VpCreatePage() {
         throw new Error('저장된 VC가 없습니다. 먼저 VC 저장 화면에서 VC를 저장해 주세요.');
       }
 
-      const provider = new ethers.BrowserProvider(window.ethereum);
+      const provider = new ethers.BrowserProvider(ethereum);
       const signer = await provider.getSigner();
       const signerAddress = await signer.getAddress();
 
