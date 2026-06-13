@@ -50,6 +50,41 @@ function initContracts() {
   ticketNFT = new ethers.Contract(process.env.TICKET_NFT_ADDRESS, TICKET_NFT_ABI, signer);
 }
 
+/** Hardhat localhost: getTransactionCount can lag behind the account nonce. */
+let nextNonce = null;
+
+function isNonceError(err) {
+  const msg = err?.info?.error?.message || err?.message || "";
+  return err?.code === "NONCE_EXPIRED" || msg.includes("Nonce too low");
+}
+
+function syncNonceFromError(err) {
+  const msg = err?.info?.error?.message || err?.message || "";
+  const match = msg.match(/Expected nonce to be (\d+)/);
+  if (match) nextNonce = parseInt(match[1], 10);
+}
+
+async function nextTxOverrides() {
+  initContracts();
+  if (nextNonce === null) {
+    nextNonce = await provider.getTransactionCount(signer.address, "latest");
+  }
+  return { nonce: nextNonce++ };
+}
+
+async function sendAndWait(sendTx) {
+  initContracts();
+  for (let attempt = 0; attempt < 5; attempt++) {
+    try {
+      const tx = await sendTx(await nextTxOverrides());
+      return tx.wait();
+    } catch (err) {
+      if (!isNonceError(err) || attempt === 4) throw err;
+      syncNonceFromError(err);
+    }
+  }
+}
+
 exports.isMock = MOCK;
 
 exports.isTrustedIssuer = async (issuerAddress) => {
@@ -70,9 +105,8 @@ exports.registerVC = async (vcHash) => {
     return { txHash: "0xmock_register_" + Date.now() };
   }
   initContracts();
-  const tx = await vcRegistry.registerVC(toBytes32(vcHash));
-  await tx.wait();
-  return { txHash: tx.hash };
+  const receipt = await sendAndWait((overrides) => vcRegistry.registerVC(toBytes32(vcHash), overrides));
+  return { txHash: receipt.hash };
 };
 
 exports.mintTicketNFT = async (toAddress, eventId, seatId) => {
@@ -82,8 +116,7 @@ exports.mintTicketNFT = async (toAddress, eventId, seatId) => {
     return { tokenId: String(tokenId), txHash: "0xmock_mint_" + tokenId };
   }
   initContracts();
-  const tx = await ticketNFT.mintTicket(toAddress, eventId, seatId);
-  const receipt = await tx.wait();
+  const receipt = await sendAndWait((overrides) => ticketNFT.mintTicket(toAddress, eventId, seatId, overrides));
   let tokenId = null;
   for (const log of receipt.logs) {
     try {
@@ -91,7 +124,7 @@ exports.mintTicketNFT = async (toAddress, eventId, seatId) => {
       if (parsed?.name === "TicketMinted") tokenId = parsed.args.tokenId.toString();
     } catch (_) {}
   }
-  return { tokenId, txHash: tx.hash };
+  return { tokenId, txHash: receipt.hash };
 };
 
 /** 게이트가 nonce를 체인에 등록 (B의 registerNonce, onlyOwner) */
@@ -101,9 +134,8 @@ exports.registerNonce = async (nonceField) => {
     return { txHash: "0xmock_nonce_" + Date.now() };
   }
   initContracts();
-  const tx = await ticketNFT.registerNonce(BigInt(nonceField));
-  await tx.wait();
-  return { txHash: tx.hash };
+  const receipt = await sendAndWait((overrides) => ticketNFT.registerNonce(BigInt(nonceField), overrides));
+  return { txHash: receipt.hash };
 };
 
 /**
@@ -129,9 +161,10 @@ exports.useTicketNFT = async (tokenId, nonceField, vcHash, currentDate, proof) =
     [proof.pi_b[1][1], proof.pi_b[1][0]]
   ];
   const pC = [proof.pi_c[0], proof.pi_c[1]];
-  const tx = await ticketNFT.useTicket(tokenId, BigInt(nonceField), toBytes32(vcHash), BigInt(currentDate), pA, pB, pC);
-  await tx.wait();
-  return { txHash: tx.hash };
+  const receipt = await sendAndWait((overrides) =>
+    ticketNFT.useTicket(tokenId, BigInt(nonceField), toBytes32(vcHash), BigInt(currentDate), pA, pB, pC, overrides)
+  );
+  return { txHash: receipt.hash };
 };
 
 exports.ownerOfTicket = async (tokenId) => {

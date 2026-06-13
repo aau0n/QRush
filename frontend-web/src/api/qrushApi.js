@@ -1,5 +1,6 @@
 import { mockEvents, mockTickets } from '../data/mockData.js';
 import { API_BASE_URL, IS_MOCK } from '../config.js';
+import { randomId } from '../utils/hash.js';
 
 const delay = (ms = 350) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -38,7 +39,7 @@ export async function registerVcHash({ vcHash, issuer }) {
   const body = await request(
     '/api/vc/register-vc',
     { method: 'POST', body: JSON.stringify({ vcHash, issuer }) },
-    () => ({ success: true, txHash: `0xmock${crypto.randomUUID().replaceAll('-', '')}` }),
+    () => ({ success: true, txHash: `0xmock${randomId().replaceAll('-', '')}` }),
   );
 
   return { success: Boolean(body?.success ?? true), txHash: body?.txHash };
@@ -87,7 +88,7 @@ export async function mintTicket({ eventId, seatId, buyerWallet }) {
     () => ({
       success: true,
       ticket: { tokenId: Math.floor(100000 + Math.random() * 900000).toString() },
-      txHash: `0xmock${crypto.randomUUID().replaceAll('-', '')}`,
+      txHash: `0xmock${randomId().replaceAll('-', '')}`,
     }),
   );
 

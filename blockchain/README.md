@@ -48,14 +48,15 @@ function verifyProof(
 ) external view returns (bool)
 ```
 
-## pubSignals 배열 순서
+## pubSignals 배열 순서 (v2)
 
 | 인덱스 | 의미 |
 |---|---|
-| `[0]` | vcHash (VC 해시) |
-| `[1]` | nonce (재사용 방지) |
-| `[2]` | tokenId (NFT 티켓 ID) |
-| `[3]` | isAdult (1 = 성인) |
+| `[0]` | isAdult (1 = 만 19세 이상) |
+| `[1]` | vcHash (VC 커밋먼트) |
+| `[2]` | nonce (1회용, 십진 field) |
+| `[3]` | tokenId (NFT 티켓 ID) |
+| `[4]` | currentDate (YYYYMMDD) |
 
 ## 테스트 커버리지
 

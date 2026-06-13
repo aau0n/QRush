@@ -55,6 +55,12 @@ async function main() {
   await issuerRegistry.registerIssuer(deployer.address, "QRush Admin");
   console.log(`    ✓ Issuer registered: ${deployer.address}`);
 
+  await issuerRegistry.registerIssuer(serverAddress, "QRush Server");
+  console.log(`    ✓ Issuer registered: ${serverAddress} (register-vc용)`);
+
+  await ticketNFT.transferOwnership(serverAddress);
+  console.log(`    ✓ TicketNFT ownership → ${serverAddress} (registerNonce용)`);
+
   const network = await ethers.provider.getNetwork();
   const addresses = {
     network: network.name,
