@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react';
 import JsonPreview from '../components/JsonPreview.jsx';
 import TicketCard from '../components/TicketCard.jsx';
 import { API_BASE_URL, API_BASE_URL_SOURCE, IS_MOCK } from '../config.js';
-import { mockHolderProfile, mockTickets } from '../data/mockWalletData.js';
 import {
   clearSelectedTicket,
   loadHolderProfile,
@@ -26,9 +25,7 @@ function getInitialWalletAddress(profile) {
 
 export default function TicketWalletPage() {
   const [profile, setProfile] = useState(() => {
-    const currentProfile = loadHolderProfile(mockHolderProfile);
-    saveHolderProfile(currentProfile);
-    return currentProfile;
+    return loadHolderProfile(null);
   });
   const [walletAddress, setWalletAddress] = useState(() => getInitialWalletAddress(profile));
   const [tickets, setTickets] = useState(() => loadTickets([]));
@@ -82,7 +79,7 @@ export default function TicketWalletPage() {
       }
 
       const nextProfile = {
-        ...profile,
+        ...(profile || {}),
         walletAddress,
       };
       saveHolderProfile(nextProfile);
@@ -98,13 +95,6 @@ export default function TicketWalletPage() {
     } finally {
       setIsSyncing(false);
     }
-  };
-
-  const handleResetTickets = () => {
-    saveTickets(mockTickets);
-    setTickets(mockTickets);
-    setStatusMessage('demo 티켓 목록을 복구했습니다.');
-    setError('');
   };
 
   const handleClearSelection = () => {
@@ -157,9 +147,6 @@ export default function TicketWalletPage() {
         <div className="button-row">
           <button className="primary-button" type="button" onClick={syncTickets} disabled={isSyncing || !walletAddress || IS_MOCK}>
             {isSyncing ? '동기화 중' : '서버에서 티켓 불러오기'}
-          </button>
-          <button className="secondary-button" type="button" onClick={handleResetTickets}>
-            demo 티켓 복구
           </button>
         </div>
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import QRCodePanel from '../components/QRCodePanel.jsx';
 import { generateNonce, getGateResult } from '../api/qrushApi.js';
 import { verifyProofUrl, DAPP_BASE_URL, IS_MOCK } from '../config.js';
+import { mockEvents } from '../data/mockData.js';
 
 // 긴 field 값을 화면용으로 축약
 const short = (v) => (v && String(v).length > 16 ? `${String(v).slice(0, 10)}…${String(v).slice(-4)}` : v);
@@ -15,6 +16,12 @@ export default function GatePage() {
   const [status, setStatus] = useState('waiting');
   const [result, setResult] = useState(null); // { entry, reason, publicSignals }
   const [loading, setLoading] = useState(false);
+  const [selectedEventId, setSelectedEventId] = useState(mockEvents[0]?.id || '');
+
+  const selectedEvent = useMemo(
+    () => mockEvents.find((event) => event.id === selectedEventId) || mockEvents[0],
+    [selectedEventId],
+  );
 
   const refreshNonce = useCallback(async () => {
     setLoading(true);
@@ -27,6 +34,11 @@ export default function GatePage() {
     setStatus('waiting');
     setLoading(false);
   }, []);
+
+  const changeSelectedEvent = (eventId) => {
+    setSelectedEventId(eventId);
+    refreshNonce();
+  };
 
   useEffect(() => {
     const timeoutId = window.setTimeout(refreshNonce, 0);
@@ -70,9 +82,11 @@ export default function GatePage() {
       nonce,
       endpoint: verifyProofUrl(),
       expiresIn: String(expiresIn),
+      eventId: selectedEvent?.id || '',
+      eventTitle: selectedEvent?.title || '',
     });
     return `${DAPP_BASE_URL}/entry?${params.toString()}`;
-  }, [expiresIn, nonce]);
+  }, [expiresIn, nonce, selectedEvent]);
 
   // 데모용 합성 publicSignals — 실서버에서 값이 안 와도 패널을 채워 보여준다.
   const demoSignals = () => ['1', '14872035981143377240118…', nonce || '0', '1', todayYmd()];
@@ -117,6 +131,17 @@ export default function GatePage() {
             <small>초 남음</small>
           </div>
         </div>
+
+        <label className="gate-event-select">
+          입장 공연
+          <select value={selectedEventId} onChange={(event) => changeSelectedEvent(event.target.value)}>
+            {mockEvents.map((event) => (
+              <option key={event.id} value={event.id}>
+                {event.title} · {event.date} {event.time}
+              </option>
+            ))}
+          </select>
+        </label>
 
         <div className="nonce-box">
           <span>nonce (hex 표시 · QR엔 십진 field)</span>

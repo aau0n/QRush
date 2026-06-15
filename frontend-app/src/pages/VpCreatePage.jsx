@@ -1,14 +1,13 @@
 import { useMemo, useState } from 'react';
 import { ethers } from 'ethers';
 import JsonPreview from '../components/JsonPreview.jsx';
-import { mockHolderProfile } from '../data/mockWalletData.js';
 import { connectMetaMaskAccount, signMessageWithMetaMaskConnect } from '../services/metamaskConnect.js';
 import { loadHolderProfile, loadVc, saveHolderProfile, saveLastVp } from '../services/storage.js';
 
 const initialForm = {
-  eventId: 'match-001',
-  seat: 'A1',
-  callback: 'http://192.168.0.20:5173/booking',
+  eventId: '',
+  seat: '',
+  callback: '',
 };
 
 function shortenAddress(address) {
@@ -55,7 +54,7 @@ function buildBookingVp({ profile, savedVc, walletAddress }) {
 
   return {
     holder: walletAddress,
-    did: subject.id || profile.holderDid,
+    did: subject.id || profile?.holderDid || '',
     issuer: getIssuer(savedVc),
     vcHash: getVcHash(savedVc),
     claims: {
@@ -199,11 +198,7 @@ export default function VpCreatePage() {
   const [bookingQrText, setBookingQrText] = useState(getInitialBookingQrText);
   const [form, setForm] = useState(getInitialBookingForm);
 
-  const [profile] = useState(() => {
-    const currentProfile = loadHolderProfile(mockHolderProfile);
-    saveHolderProfile(currentProfile);
-    return currentProfile;
-  });
+  const [profile, setProfile] = useState(() => loadHolderProfile(null));
 
   const [savedVc] = useState(() => loadVc(null));
 
@@ -258,7 +253,9 @@ export default function VpCreatePage() {
       }
 
       setWalletAddress(account);
-      saveHolderProfile({ ...profile, walletAddress: account });
+      const nextProfile = { ...(profile || {}), walletAddress: account };
+      saveHolderProfile(nextProfile);
+      setProfile(nextProfile);
       setVpPayload(null);
       setSignature('');
       setCallbackUrl('');
@@ -285,10 +282,6 @@ export default function VpCreatePage() {
     setStatusMessage('');
 
     try {
-      if (!profile) {
-        throw new Error('Holder profile이 없습니다.');
-      }
-
       if (!savedVc) {
         throw new Error('저장된 VC가 없습니다. 먼저 VC 저장 화면에서 VC를 저장해 주세요.');
       }
@@ -306,7 +299,9 @@ export default function VpCreatePage() {
       });
 
       setWalletAddress(connectedAddress);
-      saveHolderProfile({ ...profile, walletAddress: connectedAddress });
+      const nextProfile = { ...(profile || {}), walletAddress: connectedAddress };
+      saveHolderProfile(nextProfile);
+      setProfile(nextProfile);
       setVpPayload(vp);
       setSignature('');
       setCallbackUrl('');
@@ -338,7 +333,9 @@ export default function VpCreatePage() {
     }
 
     setWalletAddress(nextWalletAddress);
-    saveHolderProfile({ ...profile, walletAddress: nextWalletAddress });
+    const nextProfile = { ...(profile || {}), walletAddress: nextWalletAddress };
+    saveHolderProfile(nextProfile);
+    setProfile(nextProfile);
     setVpPayload(vp);
     setSignature(nextSignature);
     setCallbackUrl(nextCallbackUrl);
@@ -358,10 +355,6 @@ export default function VpCreatePage() {
     setStatusMessage('');
 
     try {
-      if (!profile) {
-        throw new Error('Holder profile이 없습니다.');
-      }
-
       if (!savedVc) {
         throw new Error('저장된 VC가 없습니다. 먼저 VC 저장 화면에서 VC를 저장해 주세요.');
       }
@@ -394,45 +387,6 @@ export default function VpCreatePage() {
       setStatusMessage(`MetaMask로 VP를 서명했습니다. Signer: ${shortenAddress(signerAddress)}`);
     } catch (nextError) {
       setError(nextError.message || 'VP 서명에 실패했습니다.');
-    }
-  };
-
-  const createMockSignature = async () => {
-    setError('');
-    setStatusMessage('');
-
-    try {
-      if (!profile) {
-        throw new Error('Holder profile이 없습니다.');
-      }
-
-      if (!savedVc) {
-        throw new Error('저장된 VC가 없습니다. 먼저 VC 저장 화면에서 VC를 저장해 주세요.');
-      }
-
-      const connectedAddress = walletAddress || (await getConnectedAddress());
-
-      if (!connectedAddress) {
-        throw new Error('MetaMask에서 계정 주소를 가져오지 못했습니다.');
-      }
-
-      const vp = buildBookingVp({
-        profile,
-        savedVc,
-        walletAddress: connectedAddress,
-      });
-
-      const mockSignature = `mock-signature-${Date.now()}`;
-
-      saveSignedVp({
-        vp,
-        nextSignature: mockSignature,
-        nextWalletAddress: connectedAddress,
-      });
-
-      setStatusMessage(`프로토타입용 mock signature를 생성했습니다. Holder: ${shortenAddress(connectedAddress)}`);
-    } catch (nextError) {
-      setError(nextError.message || 'mock signature 생성에 실패했습니다.');
     }
   };
 
@@ -484,7 +438,7 @@ export default function VpCreatePage() {
           <textarea
             value={bookingQrText}
             onChange={(event) => setBookingQrText(event.target.value)}
-            placeholder="qrush://create-vp?eventId=match-001&seat=A1&callback=http://192.168.0.20:5173/booking"
+            placeholder="qrush://create-vp?eventId=...&seat=...&callback=..."
             rows={4}
           />
         </label>
@@ -514,7 +468,7 @@ export default function VpCreatePage() {
         <section className="panel form-panel">
           <div className="section-title">
             <h3>예매 요청 정보</h3>
-            <span>QR 파싱 결과를 확인하거나 데모용으로 직접 수정할 수 있습니다.</span>
+            <span>QR 파싱 결과를 확인하거나 필요한 값을 직접 수정할 수 있습니다.</span>
           </div>
 
           <label>
@@ -554,10 +508,6 @@ export default function VpCreatePage() {
 
           <button className="primary-button" type="button" onClick={signVpWithMetaMask}>
             MetaMask로 VP 서명
-          </button>
-
-          <button className="secondary-button" type="button" onClick={createMockSignature}>
-            mock signature 생성
           </button>
         </div>
 

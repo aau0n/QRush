@@ -1,5 +1,5 @@
 import { API_BASE_URL } from '../config.js';
-import { ticketEvents } from '../data/mockWalletData.js';
+import { ticketEvents } from '../data/ticketCatalog.js';
 import { getAddress } from 'ethers';
 
 function normalizeStatus(status) {

@@ -1,12 +1,9 @@
 import { useState } from 'react';
 import JsonPreview from '../components/JsonPreview.jsx';
-import { mockHolderProfile, mockTickets } from '../data/mockWalletData.js';
 import {
   loadHolderProfile,
   loadTickets,
   loadVc,
-  saveHolderProfile,
-  saveTickets,
 } from '../services/storage.js';
 
 function shortenAddress(address) {
@@ -15,17 +12,9 @@ function shortenAddress(address) {
 }
 
 export default function WalletHomePage() {
-  const [profile, setProfile] = useState(() => loadHolderProfile(mockHolderProfile));
-  const [savedVc, setSavedVc] = useState(() => loadVc(null));
-  const [tickets, setTickets] = useState(() => loadTickets([]));
-
-  const resetDemoData = () => {
-    saveHolderProfile(mockHolderProfile);
-    saveTickets(mockTickets);
-    setProfile(mockHolderProfile);
-    setTickets(mockTickets);
-    setSavedVc(loadVc(null));
-  };
+  const [profile] = useState(() => loadHolderProfile(null));
+  const [savedVc] = useState(() => loadVc(null));
+  const [tickets] = useState(() => loadTickets([]));
 
   return (
     <section className="content-stack">
@@ -63,9 +52,6 @@ export default function WalletHomePage() {
               : 'VC 저장 화면에서 C 웹의 VC QR/JSON을 받아 저장해야 합니다.'}
           </p>
         </div>
-        <button className="secondary-button" onClick={resetDemoData} type="button">
-          demo 기본값 복구
-        </button>
       </section>
 
       <JsonPreview title="Holder Profile JSON" data={profile} />

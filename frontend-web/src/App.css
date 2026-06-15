@@ -474,6 +474,21 @@ dd {
   font-weight: 800;
 }
 
+.gate-event-select {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 14px;
+}
+
+.gate-event-select select {
+  background: white;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  color: #0f172a;
+  padding: 12px 14px;
+}
+
 .nonce-box {
   background: #f8fafc;
   border-radius: 8px;

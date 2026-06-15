@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import JsonPreview from '../components/JsonPreview.jsx';
-import { mockHolderProfile } from '../data/mockWalletData.js';
 import { generateEntryProof } from '../services/zkpProof.js';
 import {
   loadHolderProfile,
@@ -13,14 +12,6 @@ import {
   saveTickets,
 } from '../services/storage.js';
 import { fetchTicketsByWallet } from '../services/ticketSync.js';
-
-const sampleGateChallenge = {
-  type: 'QRushGateChallenge',
-  nonce: '763585835955600474492399',
-  nonceHex: '0xa1b21234567890abcdef',
-  endpoint: 'http://192.168.0.20:3000/api/gate/verify-proof',
-  expiresIn: 30,
-};
 
 const circuitMeta = {
   scheme: 'Groth16',
@@ -67,6 +58,8 @@ function buildGateChallengeFromParams(params) {
     nonce: params.get('nonce') || '',
     nonceHex: params.get('nonceHex') || undefined,
     endpoint: params.get('endpoint') || '/api/gate/verify-proof',
+    eventId: params.get('eventId') || '',
+    eventTitle: params.get('eventTitle') || '',
     expiresIn: Number(params.get('expiresIn') || 30),
   };
 }
@@ -132,6 +125,10 @@ function parseGateChallenge(rawValue) {
     throw new Error('Gate Challenge에 endpoint가 없습니다.');
   }
 
+  if (!parsed.eventId) {
+    throw new Error('Gate QR에 공연 정보(eventId)가 없습니다. Gate 화면에서 공연을 선택한 뒤 QR을 다시 스캔해 주세요.');
+  }
+
   return parsed;
 }
 
@@ -156,11 +153,13 @@ async function buildProofPayload({ challenge, ticket, profile, savedVc }) {
   return {
     type: 'QRushEntryProof',
     tokenId: input.tokenId,
-    holderDid: profile.holderDid,
-    walletAddress: profile.walletAddress,
+    holderDid: profile?.holderDid || savedVc?.vc?.credentialSubject?.id || null,
+    walletAddress: profile?.walletAddress || null,
     vcHash: input.vcHash,
     nonce: input.nonce,
     nonceHex: challenge.nonceHex || null,
+    eventId: challenge.eventId,
+    eventTitle: challenge.eventTitle || null,
     gateEndpoint: challenge.endpoint,
     proof,
     publicSignals,
@@ -212,11 +211,44 @@ async function submitProofPayload(challenge, proofPayload) {
 }
 
 function getChallengeKey(challenge, tokenId) {
-  return `${challenge.nonce}|${challenge.endpoint}|${tokenId || ''}`;
+  return `${challenge.nonce}|${challenge.endpoint}|${challenge.eventId}|${tokenId || ''}`;
+}
+
+function normalizeEventId(value) {
+  const normalized = String(value || '').trim();
+  if (!normalized) return '';
+  if (/^\d+$/.test(normalized)) return `match-${normalized.padStart(3, '0')}`;
+  return normalized;
+}
+
+function ticketMatchesChallengeEvent(ticket, challenge) {
+  const challengeEventId = normalizeEventId(challenge?.eventId);
+  const ticketEventId = normalizeEventId(ticket?.eventId);
+
+  if (challengeEventId && ticketEventId) {
+    return challengeEventId === ticketEventId;
+  }
+
+  return Boolean(
+    challenge?.eventTitle &&
+    ticket?.eventTitle &&
+    String(challenge.eventTitle).trim() === String(ticket.eventTitle).trim(),
+  );
+}
+
+function findValidTicketForChallenge(tickets, challenge) {
+  return tickets.find(
+    (ticket) => ticket.status === 'VALID' && ticketMatchesChallengeEvent(ticket, challenge),
+  );
+}
+
+function getChallengeEventLabel(challenge) {
+  if (!challenge) return '-';
+  return challenge.eventTitle || challenge.eventId || '-';
 }
 
 export default function EntryProofPage() {
-  const [profile] = useState(() => loadHolderProfile(mockHolderProfile));
+  const [profile] = useState(() => loadHolderProfile(null));
   const [savedVc] = useState(() => loadVc(null));
   const [walletAddress, setWalletAddress] = useState(() => getInitialWalletAddress(profile));
   const [tickets, setTickets] = useState(() => loadTickets([]));
@@ -248,19 +280,6 @@ export default function EntryProofPage() {
     setError('');
   };
 
-  const fillSampleChallenge = () => {
-    if (isProcessingRef.current) return;
-
-    handledChallengeKeyRef.current = '';
-    setChallengeText(JSON.stringify(sampleGateChallenge, null, 2));
-    setParsedChallenge(null);
-    setEntryProof(null);
-    setGateResult(null);
-    setFlowStep('idle');
-    setStatusMessage('샘플 Gate Challenge JSON을 입력했습니다.');
-    setError('');
-  };
-
   const runAutomaticEntry = useCallback(async (rawChallengeText, { force = false } = {}) => {
     if (isProcessingRef.current) return null;
 
@@ -269,7 +288,7 @@ export default function EntryProofPage() {
 
     try {
       const challenge = parseGateChallenge(rawChallengeText);
-      const selectedTicket = tickets.find((ticket) => ticket.tokenId === selectedTokenId);
+      const selectedTicket = findValidTicketForChallenge(tickets, challenge);
       const challengeKey = getChallengeKey(challenge, selectedTicket?.tokenId || selectedTokenId);
 
       if (!force && handledChallengeKeyRef.current === challengeKey) {
@@ -282,8 +301,8 @@ export default function EntryProofPage() {
       setParsedChallenge(challenge);
       setEntryProof(null);
 
-      if (!profile) {
-        throw new Error('Holder profile이 없습니다.');
+      if (selectedTicket) {
+        setSelectedTokenId(selectedTicket.tokenId);
       }
 
       if (!savedVc) {
@@ -291,11 +310,9 @@ export default function EntryProofPage() {
       }
 
       if (!selectedTicket) {
-        throw new Error('선택한 티켓을 찾을 수 없습니다.');
-      }
-
-      if (selectedTicket.status !== 'VALID') {
-        throw new Error('사용 가능한 티켓만 입장 증명에 사용할 수 있습니다.');
+        throw new Error(
+          `Gate에서 선택한 공연(${getChallengeEventLabel(challenge)})에 사용할 수 있는 VALID 티켓이 없습니다.`,
+        );
       }
 
       setFlowStep('proof');
@@ -350,7 +367,11 @@ export default function EntryProofPage() {
       saveTickets(syncedTickets);
       setTickets(syncedTickets);
 
+      const challengeMatchedTicket = parsedChallenge
+        ? findValidTicketForChallenge(syncedTickets, parsedChallenge)
+        : null;
       const nextSelectedTokenId =
+        challengeMatchedTicket?.tokenId ||
         syncedTickets.find((ticket) => ticket.status === 'VALID')?.tokenId ||
         syncedTickets[0]?.tokenId ||
         '';
@@ -440,12 +461,6 @@ export default function EntryProofPage() {
             />
           </label>
 
-          <div className="button-row">
-            <button className="secondary-button" type="button" onClick={fillSampleChallenge} disabled={isProcessing}>
-              샘플 채우기
-            </button>
-          </div>
-
           {parsedChallenge && (
             <div className="mini-summary">
               <div>
@@ -455,6 +470,10 @@ export default function EntryProofPage() {
               <div>
                 <span>endpoint</span>
                 <strong>{parsedChallenge.endpoint}</strong>
+              </div>
+              <div>
+                <span>공연</span>
+                <strong>{getChallengeEventLabel(parsedChallenge)}</strong>
               </div>
             </div>
           )}
@@ -467,7 +486,7 @@ export default function EntryProofPage() {
             <p>{flowDescription}</p>
             {parsedChallenge && (
               <small>
-                nonce {parsedChallenge.nonce} · token #{selectedTokenId || '-'}
+                {getChallengeEventLabel(parsedChallenge)} · nonce {parsedChallenge.nonce} · token #{selectedTokenId || '-'}
               </small>
             )}
           </div>
@@ -488,7 +507,7 @@ export default function EntryProofPage() {
       <section className="panel proof-meta-panel">
         <div className="section-title">
           <h3>실제 증명 메타데이터</h3>
-          <span>mock payload가 아니라 로컬 wasm/zkey로 생성하는 proof입니다.</span>
+          <span>로컬 wasm/zkey로 생성하는 실제 proof입니다.</span>
         </div>
         <div className="proof-meta-grid">
           <div>
@@ -521,7 +540,11 @@ export default function EntryProofPage() {
       <section className="panel form-panel">
         <div className="section-title">
           <h3>티켓 선택</h3>
-          <span>VALID 상태의 NFT 티켓만 입장 증명에 사용할 수 있습니다.</span>
+          <span>
+            {parsedChallenge
+              ? `Gate 선택 공연: ${getChallengeEventLabel(parsedChallenge)}`
+              : 'VALID 상태의 NFT 티켓만 입장 증명에 사용할 수 있습니다.'}
+          </span>
         </div>
 
         <label>
