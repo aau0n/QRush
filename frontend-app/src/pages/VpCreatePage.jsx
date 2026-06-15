@@ -5,6 +5,7 @@ import { API_BASE_URL } from '../config.js';
 import {
   connectMetaMaskAccount,
   consumeMetaMaskConnectSignResult,
+  getMetaMaskConnectClient,
   onMetaMaskConnectSignResult,
   signMessageWithMetaMaskConnect,
 } from '../services/metamaskConnect.js';
@@ -17,6 +18,7 @@ const initialForm = {
   submitEndpoint: '',
   resultEndpoint: '',
 };
+
 const PENDING_BOOKING_SIGN_KEY = 'qrush_booking_pending_sign';
 
 function shortenAddress(address) {
@@ -79,17 +81,22 @@ function stringifyVpForSignature(vp) {
 
 function savePendingBookingSign(payload) {
   try {
-    window.localStorage.setItem(PENDING_BOOKING_SIGN_KEY, JSON.stringify(payload));
+    window.localStorage.setItem(
+      PENDING_BOOKING_SIGN_KEY,
+      JSON.stringify({
+        ...payload,
+        savedAt: Date.now(),
+      }),
+    );
   } catch {
-    // Best-effort persistence for Safari ↔ MetaMask app return.
+    // Safari 왕복 중 storage가 막히는 경우는 무시합니다.
   }
 }
 
-function takePendingBookingSign() {
+function readPendingBookingSign() {
   try {
     const raw = window.localStorage.getItem(PENDING_BOOKING_SIGN_KEY);
     if (!raw) return null;
-    window.localStorage.removeItem(PENDING_BOOKING_SIGN_KEY);
     return JSON.parse(raw);
   } catch {
     return null;
@@ -165,6 +172,7 @@ async function signVpMessage(message, preferredAddress = '') {
     const provider = new ethers.BrowserProvider(ethereum);
     const signer = await provider.getSigner();
     const signerAddress = await signer.getAddress();
+
     const nextSignature = await withTimeout(
       signer.signMessage(message),
       90000,
@@ -232,6 +240,7 @@ function parseBookingQr(rawValue) {
 
   const sessionId = url.searchParams.get('sessionId');
   const submitEndpoint = url.searchParams.get('submitEndpoint');
+
   if (sessionId || submitEndpoint) {
     return normalizeBookingSessionPayload({
       type: 'QRushBookingSession',
@@ -264,12 +273,15 @@ function normalizeBookingSessionPayload(payload) {
   }
 
   const sessionId = payload.sessionId || '';
+
   const submitEndpoint = toApiUrl(
     payload.submitEndpoint || (sessionId ? `/api/booking/submit/${sessionId}` : ''),
   );
+
   const resultEndpoint = toApiUrl(
     payload.resultEndpoint || (sessionId ? `/api/booking/result/${sessionId}` : ''),
   );
+
   const eventId = payload.eventId || '';
   const seat = payload.seatId || payload.seat || '';
 
@@ -293,6 +305,7 @@ function normalizeBookingSessionPayload(payload) {
 function toApiUrl(pathOrUrl) {
   if (!pathOrUrl) return '';
   if (/^https?:\/\//.test(pathOrUrl)) return rewriteLocalhostForPhone(pathOrUrl);
+
   return rewriteLocalhostForPhone(
     `${API_BASE_URL}${pathOrUrl.startsWith('/') ? pathOrUrl : `/${pathOrUrl}`}`,
   );
@@ -341,6 +354,7 @@ async function submitBookingSession({ submitEndpoint, vp, signature, eventId, se
         cause: error,
       });
     }
+
     throw error;
   } finally {
     window.clearTimeout(timeout);
@@ -387,21 +401,46 @@ function getInitialBookingForm() {
   }
 }
 
+function buildFormFromPending(pending) {
+  if (!pending) return null;
+
+  return {
+    eventId: pending.eventId || '',
+    seat: pending.seat || '',
+    sessionId: pending.sessionId || '',
+    submitEndpoint: pending.submitEndpoint || '',
+    resultEndpoint: pending.resultEndpoint || '',
+  };
+}
+
 export default function VpCreatePage() {
+  const initialPendingRef = useRef(readPendingBookingSign());
+
   const [bookingQrText, setBookingQrText] = useState(getInitialBookingQrText);
-  const [form, setForm] = useState(getInitialBookingForm);
+  const [form, setForm] = useState(() => {
+    const pendingForm = buildFormFromPending(initialPendingRef.current);
+    return pendingForm || getInitialBookingForm();
+  });
 
   const [profile, setProfile] = useState(() => loadHolderProfile(null));
-
   const [savedVc] = useState(() => loadVc(null));
 
-  const [walletAddress, setWalletAddress] = useState('');
-  const [vpPayload, setVpPayload] = useState(null);
+  const [walletAddress, setWalletAddress] = useState(() => initialPendingRef.current?.walletAddress || '');
+  const [vpPayload, setVpPayload] = useState(() => initialPendingRef.current?.vp || null);
   const [signature, setSignature] = useState('');
   const [submitResult, setSubmitResult] = useState(null);
-  const [statusMessage, setStatusMessage] = useState('');
+
+  const [statusMessage, setStatusMessage] = useState(() => {
+    if (initialPendingRef.current?.vp) {
+      return 'Safari가 새로고침되어 이전 서명 요청을 복구했습니다. MetaMask 확인 후 이 화면으로 돌아오면 자동 제출합니다.';
+    }
+
+    return '';
+  });
+
   const [error, setError] = useState('');
-  const [flowStep, setFlowStep] = useState('idle');
+  const [flowStep, setFlowStep] = useState(() => (initialPendingRef.current?.vp ? 'sign' : 'idle'));
+
   const isProcessing = ['wallet', 'sign', 'submit'].includes(flowStep);
   const isCompletingSignatureRef = useRef(false);
   const submissionStateRef = useRef('idle');
@@ -452,9 +491,11 @@ export default function VpCreatePage() {
       }
 
       setWalletAddress(account);
+
       const nextProfile = { ...(profile || {}), walletAddress: account };
       saveHolderProfile(nextProfile);
       setProfile(nextProfile);
+
       setVpPayload(null);
       setSignature('');
       setSubmitResult(null);
@@ -500,9 +541,11 @@ export default function VpCreatePage() {
       });
 
       setWalletAddress(connectedAddress);
+
       const nextProfile = { ...(profile || {}), walletAddress: connectedAddress };
       saveHolderProfile(nextProfile);
       setProfile(nextProfile);
+
       setVpPayload(vp);
       setSignature('');
       setSubmitResult(null);
@@ -523,23 +566,28 @@ export default function VpCreatePage() {
     }
   };
 
-  const saveSignedVp = useCallback(({ vp, nextSignature, nextWalletAddress }) => {
-    setWalletAddress(nextWalletAddress);
-    const nextProfile = { ...(profile || {}), walletAddress: nextWalletAddress };
-    saveHolderProfile(nextProfile);
-    setProfile(nextProfile);
-    setVpPayload(vp);
-    setSignature(nextSignature);
+  const saveSignedVp = useCallback(
+    ({ vp, nextSignature, nextWalletAddress, pendingContext = null }) => {
+      setWalletAddress(nextWalletAddress);
 
-    saveLastVp({
-      vp,
-      signature: nextSignature,
-      walletAddress: nextWalletAddress,
-      sessionId: form.sessionId,
-      submitEndpoint: form.submitEndpoint,
-      resultEndpoint: form.resultEndpoint,
-    });
-  }, [form.resultEndpoint, form.sessionId, form.submitEndpoint, profile]);
+      const nextProfile = { ...(profile || {}), walletAddress: nextWalletAddress };
+      saveHolderProfile(nextProfile);
+      setProfile(nextProfile);
+
+      setVpPayload(vp);
+      setSignature(nextSignature);
+
+      saveLastVp({
+        vp,
+        signature: nextSignature,
+        walletAddress: nextWalletAddress,
+        sessionId: pendingContext?.sessionId || form.sessionId,
+        submitEndpoint: pendingContext?.submitEndpoint || form.submitEndpoint,
+        resultEndpoint: pendingContext?.resultEndpoint || form.resultEndpoint,
+      });
+    },
+    [form.resultEndpoint, form.sessionId, form.submitEndpoint, profile],
+  );
 
   const completeSignedBooking = useCallback(
     async (signed, fallbackContext = null) => {
@@ -553,7 +601,8 @@ export default function VpCreatePage() {
 
       isCompletingSignatureRef.current = true;
 
-      const pending = takePendingBookingSign() || fallbackContext;
+      const pending = readPendingBookingSign() || fallbackContext;
+
       if (!pending?.vp || !pending?.submitEndpoint) {
         isCompletingSignatureRef.current = false;
         return;
@@ -574,6 +623,15 @@ export default function VpCreatePage() {
           vp: pending.vp,
           nextSignature: signed.signature,
           nextWalletAddress: signerAddress || pending.walletAddress,
+          pendingContext: pending,
+        });
+
+        setForm({
+          eventId: pending.eventId || '',
+          seat: pending.seat || '',
+          sessionId: pending.sessionId || '',
+          submitEndpoint: pending.submitEndpoint || '',
+          resultEndpoint: pending.resultEndpoint || '',
         });
 
         setFlowStep('submit');
@@ -589,7 +647,10 @@ export default function VpCreatePage() {
         });
 
         setSubmitResult(result);
+
         submissionStateRef.current = 'done';
+        clearPendingBookingSign();
+
         setFlowStep('done');
         setStatusMessage('VP 제출이 완료되었습니다. PC 예매 화면에서 결과를 확인하세요.');
       } catch (nextError) {
@@ -604,7 +665,48 @@ export default function VpCreatePage() {
     [saveSignedVp],
   );
 
+  const checkStoredMetaMaskResult = useCallback(() => {
+    const result = consumeMetaMaskConnectSignResult();
+
+    if (!result) {
+      return false;
+    }
+
+    completeSignedBooking({
+      address: result?.accounts?.[0],
+      accounts: result?.accounts,
+      signature: result?.signature,
+    });
+
+    return true;
+  }, [completeSignedBooking]);
+
   useEffect(() => {
+    const pending = readPendingBookingSign();
+
+    if (!pending?.vp) {
+      return;
+    }
+
+    setWalletAddress(pending.walletAddress || '');
+    setVpPayload(pending.vp);
+    setForm({
+      eventId: pending.eventId || '',
+      seat: pending.seat || '',
+      sessionId: pending.sessionId || '',
+      submitEndpoint: pending.submitEndpoint || '',
+      resultEndpoint: pending.resultEndpoint || '',
+    });
+
+    if (flowStep === 'idle') {
+      setFlowStep('sign');
+      setStatusMessage('이전 MetaMask 서명 요청을 복구했습니다. 서명 결과가 확인되면 자동 제출합니다.');
+    }
+  }, [flowStep]);
+
+  useEffect(() => {
+    let active = true;
+
     const handleSignedResult = (result) => {
       completeSignedBooking({
         address: result?.accounts?.[0],
@@ -615,21 +717,44 @@ export default function VpCreatePage() {
 
     const unsubscribe = onMetaMaskConnectSignResult(handleSignedResult);
 
-    const consumeStoredResult = () => {
-      const result = consumeMetaMaskConnectSignResult();
-      if (result) handleSignedResult(result);
+    const bootMetaMaskConnect = async () => {
+      try {
+        await getMetaMaskConnectClient();
+      } catch (nextError) {
+        console.warn('MetaMask Connect client init failed:', nextError);
+      }
+
+      if (!active) return;
+      checkStoredMetaMaskResult();
     };
 
-    consumeStoredResult();
-    window.addEventListener('focus', consumeStoredResult);
-    document.addEventListener('visibilitychange', consumeStoredResult);
+    const handleFocus = () => {
+      checkStoredMetaMaskResult();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkStoredMetaMaskResult();
+      }
+    };
+
+    bootMetaMaskConnect();
+
+    const intervalId = window.setInterval(() => {
+      checkStoredMetaMaskResult();
+    }, 700);
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     return () => {
+      active = false;
       unsubscribe();
-      window.removeEventListener('focus', consumeStoredResult);
-      document.removeEventListener('visibilitychange', consumeStoredResult);
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [completeSignedBooking]);
+  }, [checkStoredMetaMaskResult, completeSignedBooking]);
 
   const signVpWithMetaMask = async () => {
     setError('');
@@ -640,6 +765,7 @@ export default function VpCreatePage() {
 
     try {
       setFlowStep('wallet');
+
       if (!savedVc) {
         throw new Error('저장된 VC가 없습니다. 먼저 VC 저장 화면에서 VC를 저장해 주세요.');
       }
@@ -649,6 +775,7 @@ export default function VpCreatePage() {
       }
 
       setStatusMessage('MetaMask 계정 연결을 확인하는 중입니다. MetaMask 앱이 열리면 승인 후 Safari로 돌아와 주세요.');
+
       const connectedAddress = await getConnectedAddress();
 
       if (!connectedAddress) {
@@ -662,6 +789,7 @@ export default function VpCreatePage() {
       });
 
       const message = stringifyVpForSignature(vp);
+
       const pendingContext = {
         vp,
         message,
@@ -673,9 +801,19 @@ export default function VpCreatePage() {
         resultEndpoint: form.resultEndpoint,
       };
 
+      setWalletAddress(connectedAddress);
+      setVpPayload(vp);
+      setSignature('');
+
+      const nextProfile = { ...(profile || {}), walletAddress: connectedAddress };
+      saveHolderProfile(nextProfile);
+      setProfile(nextProfile);
+
       setFlowStep('sign');
       setStatusMessage('MetaMask 서명 요청을 보냈습니다. MetaMask에서 확인을 누른 뒤 Safari로 돌아와 주세요.');
+
       savePendingBookingSign(pendingContext);
+
       const { address: signerAddress, signature: nextSignature } = await signVpMessage(
         message,
         connectedAddress,
@@ -690,9 +828,49 @@ export default function VpCreatePage() {
       );
     } catch (nextError) {
       if (submissionStateRef.current === 'done') return;
+
+      const pending = readPendingBookingSign();
+
+      if (pending?.vp && flowStep === 'sign') {
+        setStatusMessage('서명 요청은 저장되어 있습니다. MetaMask 승인 후 Safari로 돌아오면 자동으로 제출을 다시 시도합니다.');
+        setError(nextError.message || 'MetaMask 응답을 아직 받지 못했습니다.');
+        return;
+      }
+
       setFlowStep('error');
       setSubmitResult(nextError.body || null);
       setError(nextError.message || 'VP 서명에 실패했습니다.');
+    }
+  };
+
+  const retryPendingCheck = () => {
+    setError('');
+    setStatusMessage('');
+
+    const pending = readPendingBookingSign();
+
+    if (!pending?.vp) {
+      setFlowStep('idle');
+      setStatusMessage('복구할 서명 요청이 없습니다. 다시 서명 버튼을 눌러 주세요.');
+      return;
+    }
+
+    setWalletAddress(pending.walletAddress || '');
+    setVpPayload(pending.vp);
+    setForm({
+      eventId: pending.eventId || '',
+      seat: pending.seat || '',
+      sessionId: pending.sessionId || '',
+      submitEndpoint: pending.submitEndpoint || '',
+      resultEndpoint: pending.resultEndpoint || '',
+    });
+
+    setFlowStep('sign');
+
+    const found = checkStoredMetaMaskResult();
+
+    if (!found) {
+      setStatusMessage('대기 중인 VP를 복구했습니다. MetaMask 서명 결과가 들어오면 자동 제출합니다.');
     }
   };
 
@@ -744,6 +922,10 @@ export default function VpCreatePage() {
 
           <button className="secondary-button" type="button" onClick={connectWallet}>
             {walletAddress ? shortenAddress(walletAddress) : 'MetaMask 연결'}
+          </button>
+
+          <button className="secondary-button" type="button" onClick={retryPendingCheck}>
+            서명 복구 확인
           </button>
 
           <button className="secondary-button" type="button" onClick={resetStoredData}>
@@ -875,7 +1057,6 @@ export default function VpCreatePage() {
             <button className="secondary-button" type="button" onClick={copySignature} disabled={!signature}>
               Signature 복사
             </button>
-
           </div>
         </section>
       )}
