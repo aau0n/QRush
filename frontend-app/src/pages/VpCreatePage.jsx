@@ -10,6 +10,7 @@ const initialForm = {
   seat: '',
   sessionId: '',
   submitEndpoint: '',
+  resultEndpoint: '',
 };
 
 function shortenAddress(address) {
@@ -84,22 +85,38 @@ function delay(ms) {
   });
 }
 
+function withTimeout(promise, ms, message) {
+  let timer;
+
+  const timeout = new Promise((_, reject) => {
+    timer = window.setTimeout(() => reject(new Error(message)), ms);
+  });
+
+  return Promise.race([promise, timeout]).finally(() => {
+    window.clearTimeout(timer);
+  });
+}
+
 async function getEthereumProvider() {
   for (let index = 0; index < 20; index += 1) {
     if (window.ethereum) return window.ethereum;
     await delay(100);
   }
 
-  throw new Error('현재 브라우저에 MetaMask 연결 객체가 없습니다. Safari로 열린 상태라면 MetaMask 앱 브라우저에서 이 페이지를 열어주세요.');
+  throw new Error('현재 브라우저에 MetaMask 연결 객체가 없습니다. Safari라면 MetaMask 승인 화면이 열릴 때까지 잠시 기다려 주세요.');
 }
 
 async function getConnectedAddress() {
   if (window.ethereum) {
     const ethereum = await getEthereumProvider();
 
-    const accounts = await ethereum.request({
-      method: 'eth_requestAccounts',
-    });
+    const accounts = await withTimeout(
+      ethereum.request({
+        method: 'eth_requestAccounts',
+      }),
+      45000,
+      'MetaMask 계정 연결 응답이 없습니다. MetaMask 앱에서 승인 후 이 화면으로 돌아왔는지 확인해 주세요.',
+    );
 
     console.log('MetaMask accounts:', accounts);
 
@@ -115,7 +132,11 @@ async function signVpMessage(message, preferredAddress = '') {
     const provider = new ethers.BrowserProvider(ethereum);
     const signer = await provider.getSigner();
     const signerAddress = await signer.getAddress();
-    const nextSignature = await signer.signMessage(message);
+    const nextSignature = await withTimeout(
+      signer.signMessage(message),
+      90000,
+      'MetaMask 서명 응답이 없습니다. MetaMask 앱에서 승인 후 Safari로 돌아왔는지 확인해 주세요.',
+    );
 
     console.log('Signer address:', signerAddress);
 
@@ -129,7 +150,11 @@ async function signVpMessage(message, preferredAddress = '') {
     };
   }
 
-  const signed = await signMessageWithMetaMaskConnect(message);
+  const signed = await withTimeout(
+    signMessageWithMetaMaskConnect(message),
+    90000,
+    'MetaMask 서명 응답이 없습니다. MetaMask 앱에서 승인 후 Safari로 돌아왔는지 확인해 주세요.',
+  );
 
   if (preferredAddress && signed.address && signed.address.toLowerCase() !== preferredAddress.toLowerCase()) {
     throw new Error('서명한 MetaMask 계정이 VP holder 주소와 다릅니다. 같은 계정으로 다시 시도해 주세요.');
@@ -196,6 +221,7 @@ function parseBookingQr(rawValue) {
     seat,
     sessionId: '',
     submitEndpoint: '',
+    resultEndpoint: '',
   };
 }
 
@@ -207,6 +233,9 @@ function normalizeBookingSessionPayload(payload) {
   const sessionId = payload.sessionId || '';
   const submitEndpoint = toApiUrl(
     payload.submitEndpoint || (sessionId ? `/api/booking/submit/${sessionId}` : ''),
+  );
+  const resultEndpoint = toApiUrl(
+    payload.resultEndpoint || (sessionId ? `/api/booking/result/${sessionId}` : ''),
   );
   const eventId = payload.eventId || '';
   const seat = payload.seatId || payload.seat || '';
@@ -224,6 +253,7 @@ function normalizeBookingSessionPayload(payload) {
     seat,
     sessionId,
     submitEndpoint,
+    resultEndpoint,
   };
 }
 
@@ -261,16 +291,34 @@ async function submitBookingSession({ submitEndpoint, vp, signature, eventId, se
     throw new Error('예매 세션 제출 endpoint가 없습니다.');
   }
 
-  const response = await fetch(submitEndpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ vp, signature, eventId, seatId: seat }),
-  });
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 30000);
+  let response;
+
+  try {
+    response = await fetch(submitEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vp, signature, eventId, seatId: seat }),
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error.name === 'AbortError') {
+      throw new Error('예매 세션 제출 시간이 초과되었습니다. 백엔드 주소가 폰에서 접근 가능한지 확인해 주세요.', {
+        cause: error,
+      });
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
 
   const result = await response.json().catch(() => null);
 
   if (!response.ok) {
-    throw new Error(result?.error || result?.reason || `예매 세션 제출 실패 (${response.status})`);
+    const error = new Error(result?.error || result?.reason || `예매 세션 제출 실패 (${response.status})`);
+    error.body = result;
+    throw error;
   }
 
   return result;
@@ -320,7 +368,8 @@ export default function VpCreatePage() {
   const [submitResult, setSubmitResult] = useState(null);
   const [statusMessage, setStatusMessage] = useState('');
   const [error, setError] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [flowStep, setFlowStep] = useState('idle');
+  const isProcessing = ['wallet', 'sign', 'submit'].includes(flowStep);
 
   const signedPayload = useMemo(() => {
     if (!vpPayload || !signature) return null;
@@ -332,8 +381,9 @@ export default function VpCreatePage() {
       seat: form.seat,
       sessionId: form.sessionId,
       submitEndpoint: form.submitEndpoint,
+      resultEndpoint: form.resultEndpoint,
     };
-  }, [form.eventId, form.seat, form.sessionId, form.submitEndpoint, signature, vpPayload]);
+  }, [form.eventId, form.resultEndpoint, form.seat, form.sessionId, form.submitEndpoint, signature, vpPayload]);
 
   const updateForm = (event) => {
     setForm((current) => ({
@@ -373,7 +423,7 @@ export default function VpCreatePage() {
       setVpPayload(null);
       setSignature('');
       setSubmitResult(null);
-      setIsSubmitting(false);
+      setFlowStep('idle');
 
       setStatusMessage(`지갑 연결 완료: ${shortenAddress(account)}`);
     } catch (nextError) {
@@ -388,7 +438,7 @@ export default function VpCreatePage() {
     setVpPayload(null);
     setSignature('');
     setSubmitResult(null);
-    setIsSubmitting(false);
+    setFlowStep('idle');
     setStatusMessage('저장된 지갑/VP 데이터를 초기화했습니다. 페이지를 새로고침한 뒤 MetaMask를 다시 연결하세요.');
     setError('');
   };
@@ -421,7 +471,7 @@ export default function VpCreatePage() {
       setVpPayload(vp);
       setSignature('');
       setSubmitResult(null);
-      setIsSubmitting(false);
+      setFlowStep('idle');
 
       saveLastVp({
         vp,
@@ -429,6 +479,7 @@ export default function VpCreatePage() {
         walletAddress: connectedAddress,
         sessionId: form.sessionId,
         submitEndpoint: form.submitEndpoint,
+        resultEndpoint: form.resultEndpoint,
       });
 
       setStatusMessage(`예매용 VP JSON을 생성했습니다. Holder: ${shortenAddress(connectedAddress)}`);
@@ -451,18 +502,26 @@ export default function VpCreatePage() {
       walletAddress: nextWalletAddress,
       sessionId: form.sessionId,
       submitEndpoint: form.submitEndpoint,
+      resultEndpoint: form.resultEndpoint,
     });
   };
 
   const signVpWithMetaMask = async () => {
     setError('');
     setStatusMessage('');
+    setSubmitResult(null);
 
     try {
+      setFlowStep('wallet');
       if (!savedVc) {
         throw new Error('저장된 VC가 없습니다. 먼저 VC 저장 화면에서 VC를 저장해 주세요.');
       }
 
+      if (!form.sessionId || !form.submitEndpoint) {
+        throw new Error('예매 세션 정보가 없습니다. PC 예매 페이지의 QR을 다시 스캔해 주세요.');
+      }
+
+      setStatusMessage('MetaMask 계정 연결을 확인하는 중입니다. MetaMask 앱이 열리면 승인 후 Safari로 돌아와 주세요.');
       const connectedAddress = await getConnectedAddress();
 
       if (!connectedAddress) {
@@ -477,6 +536,8 @@ export default function VpCreatePage() {
 
       const message = stringifyVpForSignature(vp);
 
+      setFlowStep('sign');
+      setStatusMessage('MetaMask 서명 요청을 보냈습니다. MetaMask에서 확인을 누른 뒤 Safari로 돌아와 주세요.');
       const { address: signerAddress, signature: nextSignature } = await signVpMessage(
         message,
         connectedAddress,
@@ -488,7 +549,7 @@ export default function VpCreatePage() {
         nextWalletAddress: signerAddress,
       });
 
-      setIsSubmitting(true);
+      setFlowStep('submit');
       setStatusMessage('VP 서명이 완료되었습니다. 예매 세션으로 제출 중입니다...');
       const result = await submitBookingSession({
         submitEndpoint: form.submitEndpoint,
@@ -499,12 +560,12 @@ export default function VpCreatePage() {
       });
 
       setSubmitResult(result);
+      setFlowStep('done');
       setStatusMessage('VP 제출이 완료되었습니다. PC 예매 화면에서 결과를 확인하세요.');
     } catch (nextError) {
+      setFlowStep('error');
+      setSubmitResult(nextError.body || null);
       setError(nextError.message || 'VP 서명에 실패했습니다.');
-      setIsSubmitting(false);
-    } finally {
-      setIsSubmitting(false);
     }
   };
 
@@ -596,6 +657,11 @@ export default function VpCreatePage() {
             submitEndpoint
             <input name="submitEndpoint" value={form.submitEndpoint} onChange={updateForm} />
           </label>
+
+          <label>
+            resultEndpoint
+            <input name="resultEndpoint" value={form.resultEndpoint} onChange={updateForm} />
+          </label>
         </section>
 
         <section className={savedVc ? 'panel status-panel success' : 'panel status-panel warning'}>
@@ -617,10 +683,31 @@ export default function VpCreatePage() {
             VP JSON만 생성
           </button>
 
-          <button className="primary-button" type="button" onClick={signVpWithMetaMask} disabled={isSubmitting}>
-            {isSubmitting ? '예매 세션 제출 중' : 'MetaMask로 VP 서명 후 제출'}
+          <button className="primary-button" type="button" onClick={signVpWithMetaMask} disabled={isProcessing}>
+            {flowStep === 'wallet' && 'MetaMask 연결 확인 중'}
+            {flowStep === 'sign' && 'MetaMask 서명 대기 중'}
+            {flowStep === 'submit' && '예매 세션 제출 중'}
+            {!isProcessing && 'MetaMask로 VP 서명 후 제출'}
           </button>
+
         </div>
+
+        {flowStep !== 'idle' && (
+          <div className={`auto-flow-panel ${flowStep === 'error' ? 'error' : flowStep === 'done' ? 'done' : 'verify'}`}>
+            <div className={isProcessing ? 'spinner' : 'spinner idle'} aria-hidden="true" />
+            <div>
+              <h3>
+                {flowStep === 'wallet' && '지갑 연결 확인 중'}
+                {flowStep === 'sign' && 'MetaMask 서명 대기 중'}
+                {flowStep === 'submit' && '예매 세션 제출 중'}
+                {flowStep === 'done' && '제출 완료'}
+                {flowStep === 'error' && '처리 실패'}
+              </h3>
+              <p>{statusMessage || error}</p>
+              {form.sessionId && <small>sessionId: {form.sessionId}</small>}
+            </div>
+          </div>
+        )}
 
         {statusMessage && <p className="success-text">{statusMessage}</p>}
         {error && <p className="error-text">{error}</p>}
