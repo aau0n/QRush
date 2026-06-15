@@ -51,6 +51,7 @@ export function getNonceFromChallenge(challenge) {
 export async function buildEntryProofInput({ challenge, ticket, savedVc }) {
   return {
     birthdate: getBirthdateFromVc(savedVc),
+    vcSecret: savedVc.vcSecret,
     vcHash: getVcHashFromVc(savedVc),
     nonce: getNonceFromChallenge(challenge),
     tokenId: toFieldString(ticket?.tokenId, 'tokenId'),
