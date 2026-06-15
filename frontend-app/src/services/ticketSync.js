@@ -1,8 +1,37 @@
 import { API_BASE_URL } from '../config.js';
+import { ticketEvents } from '../data/mockWalletData.js';
 import { getAddress } from 'ethers';
 
 function normalizeStatus(status) {
   return String(status || 'VALID').toUpperCase();
+}
+
+function findTicketEvent(eventId) {
+  return ticketEvents.find((event) => event.id === eventId || event.id === `match-${String(eventId).padStart(3, '0')}`);
+}
+
+function getEventTitle(ticket, eventId) {
+  return (
+    ticket?.eventTitle ||
+    ticket?.eventName ||
+    ticket?.title ||
+    ticket?.name ||
+    ticket?.event?.title ||
+    ticket?.event?.name ||
+    findTicketEvent(eventId)?.title ||
+    (eventId ? `Event ${eventId}` : 'QRush Ticket')
+  );
+}
+
+function getEventDate(ticket, eventId) {
+  const matchedEvent = findTicketEvent(eventId);
+
+  return (
+    ticket?.eventDate ||
+    ticket?.date ||
+    ticket?.event?.date ||
+    (matchedEvent ? `${matchedEvent.date} ${matchedEvent.time}` : '-')
+  );
 }
 
 function normalizeTicket(ticket) {
@@ -14,8 +43,8 @@ function normalizeTicket(ticket) {
     ...ticket,
     tokenId,
     eventId,
-    eventTitle: ticket?.eventTitle || (eventId ? `Event ${eventId}` : 'QRush Ticket'),
-    eventDate: ticket?.eventDate || ticket?.date || '-',
+    eventTitle: getEventTitle(ticket, eventId),
+    eventDate: getEventDate(ticket, eventId),
     seat,
     status: normalizeStatus(ticket?.status),
   };

@@ -8,16 +8,13 @@ const navItems = [
 
 export default function Header({ currentPath, navigate }) {
   return (
-    <aside className="sidebar">
-      <div>
-        <p className="eyebrow">QRush app</p>
-        <h1>사용자 지갑 앱</h1>
-        <p className="sidebar-desc">
-          VC 저장, VP 생성, 입장 증명 생성을 담당하는 Holder 프로토타입입니다.
-        </p>
-      </div>
+    <header className="topbar">
+      <button className="brand" onClick={() => navigate('/wallet')} type="button">
+        <span className="brand-name">QRush</span>
+        <span className="brand-tag">사용자 지갑 앱</span>
+      </button>
 
-      <nav className="nav-list" aria-label="holder app pages">
+      <nav className="topnav" aria-label="holder app pages">
         {navItems.map((item) => (
           <button
             key={item.path}
@@ -29,7 +26,6 @@ export default function Header({ currentPath, navigate }) {
           </button>
         ))}
       </nav>
-
-    </aside>
+    </header>
   );
 }
