@@ -432,14 +432,16 @@ export default function VpCreatePage() {
 
   const [statusMessage, setStatusMessage] = useState(() => {
     if (initialPendingRef.current?.vp) {
-      return 'Safari가 새로고침되어 이전 서명 요청을 복구했습니다. MetaMask 확인 후 이 화면으로 돌아오면 자동 제출합니다.';
+      return '이전 서명 요청이 남아 있습니다. 서명 버튼을 다시 누르거나 [복구]를 눌러 주세요.';
     }
 
     return '';
   });
 
   const [error, setError] = useState('');
-  const [flowStep, setFlowStep] = useState(() => (initialPendingRef.current?.vp ? 'sign' : 'idle'));
+  // 마운트 시엔 항상 idle로 시작 — 이전 pending이 있어도 버튼을 잠그지 않는다.
+  // (서명 결과가 실제로 들어오면 아래 폴링이 자동 완료시킴)
+  const [flowStep, setFlowStep] = useState('idle');
 
   const isProcessing = ['wallet', 'sign', 'submit'].includes(flowStep);
   const isCompletingSignatureRef = useRef(false);
@@ -699,8 +701,7 @@ export default function VpCreatePage() {
     });
 
     if (flowStep === 'idle') {
-      setFlowStep('sign');
-      setStatusMessage('이전 MetaMask 서명 요청을 복구했습니다. 서명 결과가 확인되면 자동 제출합니다.');
+      setStatusMessage('이전 서명 요청이 남아 있습니다. 서명 버튼을 다시 누르거나 [복구]를 눌러 주세요.');
     }
   }, [flowStep]);
 
