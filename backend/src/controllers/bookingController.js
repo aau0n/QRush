@@ -21,7 +21,7 @@ exports.createSession = async (req, res) => {
       resultEndpoint: `/api/booking/result/${sessionId}`,
       eventId: eventId || null,
       seatId: seatId || null,
-      expiresIn: 600
+      expiresIn: 3600
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

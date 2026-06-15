@@ -37,7 +37,7 @@ const BookingSessionSchema = new mongoose.Schema({
   createdAt: {
     type: Date,
     default: Date.now,
-    expires: 600   // 10분 후 자동 삭제 (예매는 입장보다 여유롭게)
+    expires: 3600   // 1시간 후 자동 삭제 (느린 MetaMask 서명 왕복·재시도 대비)
   }
 });
 
