@@ -1,8 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ethers } from 'ethers';
 import JsonPreview from '../components/JsonPreview.jsx';
 import { API_BASE_URL } from '../config.js';
-import { connectMetaMaskAccount, signMessageWithMetaMaskConnect } from '../services/metamaskConnect.js';
+import {
+  connectMetaMaskAccount,
+  consumeMetaMaskConnectSignResult,
+  onMetaMaskConnectSignResult,
+  signMessageWithMetaMaskConnect,
+} from '../services/metamaskConnect.js';
 import { loadHolderProfile, loadVc, saveHolderProfile, saveLastVp } from '../services/storage.js';
 
 const initialForm = {
@@ -12,6 +17,7 @@ const initialForm = {
   submitEndpoint: '',
   resultEndpoint: '',
 };
+const PENDING_BOOKING_SIGN_KEY = 'qrush_booking_pending_sign';
 
 function shortenAddress(address) {
   if (!address) return '-';
@@ -69,6 +75,33 @@ function buildBookingVp({ profile, savedVc, walletAddress }) {
 
 function stringifyVpForSignature(vp) {
   return JSON.stringify(vp);
+}
+
+function savePendingBookingSign(payload) {
+  try {
+    window.localStorage.setItem(PENDING_BOOKING_SIGN_KEY, JSON.stringify(payload));
+  } catch {
+    // Best-effort persistence for Safari ↔ MetaMask app return.
+  }
+}
+
+function takePendingBookingSign() {
+  try {
+    const raw = window.localStorage.getItem(PENDING_BOOKING_SIGN_KEY);
+    if (!raw) return null;
+    window.localStorage.removeItem(PENDING_BOOKING_SIGN_KEY);
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function clearPendingBookingSign() {
+  try {
+    window.localStorage.removeItem(PENDING_BOOKING_SIGN_KEY);
+  } catch {
+    // Ignore.
+  }
 }
 
 function decodePayload64(value) {
@@ -370,6 +403,8 @@ export default function VpCreatePage() {
   const [error, setError] = useState('');
   const [flowStep, setFlowStep] = useState('idle');
   const isProcessing = ['wallet', 'sign', 'submit'].includes(flowStep);
+  const isCompletingSignatureRef = useRef(false);
+  const submissionStateRef = useRef('idle');
 
   const signedPayload = useMemo(() => {
     if (!vpPayload || !signature) return null;
@@ -488,7 +523,7 @@ export default function VpCreatePage() {
     }
   };
 
-  const saveSignedVp = ({ vp, nextSignature, nextWalletAddress }) => {
+  const saveSignedVp = useCallback(({ vp, nextSignature, nextWalletAddress }) => {
     setWalletAddress(nextWalletAddress);
     const nextProfile = { ...(profile || {}), walletAddress: nextWalletAddress };
     saveHolderProfile(nextProfile);
@@ -504,12 +539,104 @@ export default function VpCreatePage() {
       submitEndpoint: form.submitEndpoint,
       resultEndpoint: form.resultEndpoint,
     });
-  };
+  }, [form.resultEndpoint, form.sessionId, form.submitEndpoint, profile]);
+
+  const completeSignedBooking = useCallback(
+    async (signed, fallbackContext = null) => {
+      if (
+        !signed?.signature ||
+        isCompletingSignatureRef.current ||
+        submissionStateRef.current === 'done'
+      ) {
+        return;
+      }
+
+      isCompletingSignatureRef.current = true;
+
+      const pending = takePendingBookingSign() || fallbackContext;
+      if (!pending?.vp || !pending?.submitEndpoint) {
+        isCompletingSignatureRef.current = false;
+        return;
+      }
+
+      try {
+        const signerAddress = signed.address || signed.accounts?.[0] || pending.walletAddress || '';
+
+        if (
+          pending.walletAddress &&
+          signerAddress &&
+          signerAddress.toLowerCase() !== pending.walletAddress.toLowerCase()
+        ) {
+          throw new Error('서명한 MetaMask 계정이 VP holder 주소와 다릅니다. 같은 계정으로 다시 시도해 주세요.');
+        }
+
+        saveSignedVp({
+          vp: pending.vp,
+          nextSignature: signed.signature,
+          nextWalletAddress: signerAddress || pending.walletAddress,
+        });
+
+        setFlowStep('submit');
+        setStatusMessage('VP 서명이 완료되었습니다. 예매 세션으로 제출 중입니다...');
+        setError('');
+
+        const result = await submitBookingSession({
+          submitEndpoint: pending.submitEndpoint,
+          vp: pending.vp,
+          signature: signed.signature,
+          eventId: pending.eventId,
+          seat: pending.seat,
+        });
+
+        setSubmitResult(result);
+        submissionStateRef.current = 'done';
+        setFlowStep('done');
+        setStatusMessage('VP 제출이 완료되었습니다. PC 예매 화면에서 결과를 확인하세요.');
+      } catch (nextError) {
+        submissionStateRef.current = 'error';
+        setFlowStep('error');
+        setSubmitResult(nextError.body || null);
+        setError(nextError.message || 'VP 제출에 실패했습니다.');
+      } finally {
+        isCompletingSignatureRef.current = false;
+      }
+    },
+    [saveSignedVp],
+  );
+
+  useEffect(() => {
+    const handleSignedResult = (result) => {
+      completeSignedBooking({
+        address: result?.accounts?.[0],
+        accounts: result?.accounts,
+        signature: result?.signature,
+      });
+    };
+
+    const unsubscribe = onMetaMaskConnectSignResult(handleSignedResult);
+
+    const consumeStoredResult = () => {
+      const result = consumeMetaMaskConnectSignResult();
+      if (result) handleSignedResult(result);
+    };
+
+    consumeStoredResult();
+    window.addEventListener('focus', consumeStoredResult);
+    document.addEventListener('visibilitychange', consumeStoredResult);
+
+    return () => {
+      unsubscribe();
+      window.removeEventListener('focus', consumeStoredResult);
+      document.removeEventListener('visibilitychange', consumeStoredResult);
+    };
+  }, [completeSignedBooking]);
 
   const signVpWithMetaMask = async () => {
     setError('');
     setStatusMessage('');
     setSubmitResult(null);
+    submissionStateRef.current = 'idle';
+    clearPendingBookingSign();
 
     try {
       setFlowStep('wallet');
@@ -535,34 +662,34 @@ export default function VpCreatePage() {
       });
 
       const message = stringifyVpForSignature(vp);
+      const pendingContext = {
+        vp,
+        message,
+        walletAddress: connectedAddress,
+        eventId: form.eventId,
+        seat: form.seat,
+        sessionId: form.sessionId,
+        submitEndpoint: form.submitEndpoint,
+        resultEndpoint: form.resultEndpoint,
+      };
 
       setFlowStep('sign');
       setStatusMessage('MetaMask 서명 요청을 보냈습니다. MetaMask에서 확인을 누른 뒤 Safari로 돌아와 주세요.');
+      savePendingBookingSign(pendingContext);
       const { address: signerAddress, signature: nextSignature } = await signVpMessage(
         message,
         connectedAddress,
       );
 
-      saveSignedVp({
-        vp,
-        nextSignature,
-        nextWalletAddress: signerAddress,
-      });
-
-      setFlowStep('submit');
-      setStatusMessage('VP 서명이 완료되었습니다. 예매 세션으로 제출 중입니다...');
-      const result = await submitBookingSession({
-        submitEndpoint: form.submitEndpoint,
-        vp,
-        signature: nextSignature,
-        eventId: form.eventId,
-        seat: form.seat,
-      });
-
-      setSubmitResult(result);
-      setFlowStep('done');
-      setStatusMessage('VP 제출이 완료되었습니다. PC 예매 화면에서 결과를 확인하세요.');
+      await completeSignedBooking(
+        {
+          address: signerAddress,
+          signature: nextSignature,
+        },
+        pendingContext,
+      );
     } catch (nextError) {
+      if (submissionStateRef.current === 'done') return;
       setFlowStep('error');
       setSubmitResult(nextError.body || null);
       setError(nextError.message || 'VP 서명에 실패했습니다.');
