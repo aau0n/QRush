@@ -20,6 +20,7 @@
     "ethers": "^6.16.0",
     "express": "^5.2.1",
     "mongoose": "^9.6.3",
+    "poseidon-lite": "^0.3.0",
     "snarkjs": "^0.7.6"
   },
   "devDependencies": {
