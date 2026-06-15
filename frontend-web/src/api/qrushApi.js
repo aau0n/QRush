@@ -5,6 +5,12 @@ import { getAddress } from 'ethers';
 
 const delay = (ms = 350) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function toApiUrl(pathOrUrl) {
+  if (!pathOrUrl) return '';
+  if (/^https?:\/\//.test(pathOrUrl)) return pathOrUrl;
+  return `${API_BASE_URL}${pathOrUrl.startsWith('/') ? pathOrUrl : `/${pathOrUrl}`}`;
+}
+
 // 실제 서버가 설정돼 있으면 fetch, 아니면 mock 폴백.
 async function request(path, options = {}, fallback) {
   if (IS_MOCK) {
@@ -95,6 +101,39 @@ export async function mintTicket({ eventId, seatId, buyerWallet }) {
   );
 
   return { tokenId: body?.ticket?.tokenId ?? body?.tokenId, txHash: body?.txHash };
+}
+
+export async function createBookingSession({ eventId, seatId }) {
+  const sessionId = randomId().replaceAll('-', '').slice(0, 24);
+  const body = await request(
+    '/api/booking/create-session',
+    { method: 'POST', body: JSON.stringify({ eventId, seatId }) },
+    () => ({
+      type: 'QRushBookingSession',
+      sessionId,
+      submitEndpoint: `/api/booking/submit/${sessionId}`,
+      resultEndpoint: `/api/booking/result/${sessionId}`,
+      eventId,
+      seatId,
+      expiresIn: 600,
+    }),
+  );
+
+  return {
+    ...body,
+    submitEndpoint: toApiUrl(body?.submitEndpoint),
+    resultEndpoint: toApiUrl(body?.resultEndpoint),
+  };
+}
+
+export async function getBookingSessionResult(sessionId) {
+  const body = await request(
+    `/api/booking/result/${encodeURIComponent(sessionId)}`,
+    { method: 'GET' },
+    () => ({ decided: false }),
+  );
+
+  return body || { decided: false };
 }
 
 // POST /api/gate/generate-nonce  (C 게이트 단말기)

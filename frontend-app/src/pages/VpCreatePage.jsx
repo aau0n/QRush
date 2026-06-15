@@ -1,13 +1,15 @@
 import { useMemo, useState } from 'react';
 import { ethers } from 'ethers';
 import JsonPreview from '../components/JsonPreview.jsx';
+import { API_BASE_URL } from '../config.js';
 import { connectMetaMaskAccount, signMessageWithMetaMaskConnect } from '../services/metamaskConnect.js';
 import { loadHolderProfile, loadVc, saveHolderProfile, saveLastVp } from '../services/storage.js';
 
 const initialForm = {
   eventId: '',
   seat: '',
-  callback: '',
+  sessionId: '',
+  submitEndpoint: '',
 };
 
 function shortenAddress(address) {
@@ -66,6 +68,14 @@ function buildBookingVp({ profile, savedVc, walletAddress }) {
 
 function stringifyVpForSignature(vp) {
   return JSON.stringify(vp);
+}
+
+function decodePayload64(value) {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+  const binary = atob(padded);
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
 }
 
 function delay(ms) {
@@ -132,6 +142,13 @@ function parseBookingQr(rawValue) {
   const raw = rawValue.trim();
   if (!raw) throw new Error('예매 QR 값을 입력해 주세요.');
 
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed.type === 'QRushBookingSession') return normalizeBookingSessionPayload(parsed);
+  } catch {
+    // Continue with URL parsing.
+  }
+
   let url;
   try {
     url = new URL(raw);
@@ -147,9 +164,28 @@ function parseBookingQr(rawValue) {
     throw new Error('qrush://create-vp 또는 http(s)://.../vp 형식의 예매 QR만 처리할 수 있습니다.');
   }
 
+  const session64 = url.searchParams.get('session64');
+  const sessionJson = url.searchParams.get('session');
+
+  if (session64 || sessionJson) {
+    const sessionPayload = JSON.parse(session64 ? decodePayload64(session64) : sessionJson);
+    return normalizeBookingSessionPayload(sessionPayload);
+  }
+
+  const sessionId = url.searchParams.get('sessionId');
+  const submitEndpoint = url.searchParams.get('submitEndpoint');
+  if (sessionId || submitEndpoint) {
+    return normalizeBookingSessionPayload({
+      type: 'QRushBookingSession',
+      sessionId,
+      submitEndpoint,
+      eventId: url.searchParams.get('eventId'),
+      seatId: url.searchParams.get('seatId') || url.searchParams.get('seat'),
+    });
+  }
+
   const eventId = url.searchParams.get('eventId');
   const seat = url.searchParams.get('seat');
-  const callback = url.searchParams.get('callback');
 
   if (!eventId || !seat) {
     throw new Error('예매 QR에 eventId 또는 seat 값이 없습니다.');
@@ -158,19 +194,63 @@ function parseBookingQr(rawValue) {
   return {
     eventId,
     seat,
-    callback: callback || '',
+    sessionId: '',
+    submitEndpoint: '',
   };
 }
 
-function buildCallbackUrl({ callback, vp, signature, eventId, seat }) {
-  if (!callback) throw new Error('callback URL이 없습니다.');
+function normalizeBookingSessionPayload(payload) {
+  if (payload.type !== 'QRushBookingSession') {
+    throw new Error('예매 세션 QR 형식이 올바르지 않습니다.');
+  }
 
-  const url = new URL(callback);
-  url.searchParams.set('vp', JSON.stringify(vp));
-  url.searchParams.set('signature', signature);
-  url.searchParams.set('eventId', eventId);
-  url.searchParams.set('seat', seat);
-  return url.toString();
+  const sessionId = payload.sessionId || '';
+  const submitEndpoint = toApiUrl(
+    payload.submitEndpoint || (sessionId ? `/api/booking/submit/${sessionId}` : ''),
+  );
+  const eventId = payload.eventId || '';
+  const seat = payload.seatId || payload.seat || '';
+
+  if (!sessionId && !submitEndpoint) {
+    throw new Error('예매 세션 QR에 sessionId 또는 submitEndpoint가 없습니다.');
+  }
+
+  if (!eventId || !seat) {
+    throw new Error('예매 세션 QR에 eventId 또는 seatId가 없습니다.');
+  }
+
+  return {
+    eventId,
+    seat,
+    sessionId,
+    submitEndpoint,
+  };
+}
+
+function toApiUrl(pathOrUrl) {
+  if (!pathOrUrl) return '';
+  if (/^https?:\/\//.test(pathOrUrl)) return pathOrUrl;
+  return `${API_BASE_URL}${pathOrUrl.startsWith('/') ? pathOrUrl : `/${pathOrUrl}`}`;
+}
+
+async function submitBookingSession({ submitEndpoint, vp, signature, eventId, seat }) {
+  if (!submitEndpoint) {
+    throw new Error('예매 세션 제출 endpoint가 없습니다.');
+  }
+
+  const response = await fetch(submitEndpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ vp, signature, eventId, seatId: seat }),
+  });
+
+  const result = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(result?.error || result?.reason || `예매 세션 제출 실패 (${response.status})`);
+  }
+
+  return result;
 }
 
 function getInitialBookingQrText() {
@@ -205,9 +285,10 @@ export default function VpCreatePage() {
   const [walletAddress, setWalletAddress] = useState('');
   const [vpPayload, setVpPayload] = useState(null);
   const [signature, setSignature] = useState('');
-  const [callbackUrl, setCallbackUrl] = useState('');
+  const [submitResult, setSubmitResult] = useState(null);
   const [statusMessage, setStatusMessage] = useState('');
   const [error, setError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const signedPayload = useMemo(() => {
     if (!vpPayload || !signature) return null;
@@ -217,9 +298,10 @@ export default function VpCreatePage() {
       signature,
       eventId: form.eventId,
       seat: form.seat,
-      callback: form.callback,
+      sessionId: form.sessionId,
+      submitEndpoint: form.submitEndpoint,
     };
-  }, [form.callback, form.eventId, form.seat, signature, vpPayload]);
+  }, [form.eventId, form.seat, form.sessionId, form.submitEndpoint, signature, vpPayload]);
 
   const updateForm = (event) => {
     setForm((current) => ({
@@ -235,7 +317,7 @@ export default function VpCreatePage() {
     try {
       const parsed = parseBookingQr(bookingQrText);
       setForm(parsed);
-      setStatusMessage('예매 QR에서 eventId, seat, callback을 읽었습니다.');
+      setStatusMessage('예매 QR에서 eventId, seat, submitEndpoint를 읽었습니다.');
     } catch (nextError) {
       setError(nextError.message || '예매 QR 파싱에 실패했습니다.');
     }
@@ -258,7 +340,8 @@ export default function VpCreatePage() {
       setProfile(nextProfile);
       setVpPayload(null);
       setSignature('');
-      setCallbackUrl('');
+      setSubmitResult(null);
+      setIsSubmitting(false);
 
       setStatusMessage(`지갑 연결 완료: ${shortenAddress(account)}`);
     } catch (nextError) {
@@ -272,7 +355,8 @@ export default function VpCreatePage() {
     setWalletAddress('');
     setVpPayload(null);
     setSignature('');
-    setCallbackUrl('');
+    setSubmitResult(null);
+    setIsSubmitting(false);
     setStatusMessage('저장된 지갑/VP 데이터를 초기화했습니다. 페이지를 새로고침한 뒤 MetaMask를 다시 연결하세요.');
     setError('');
   };
@@ -304,13 +388,15 @@ export default function VpCreatePage() {
       setProfile(nextProfile);
       setVpPayload(vp);
       setSignature('');
-      setCallbackUrl('');
+      setSubmitResult(null);
+      setIsSubmitting(false);
 
       saveLastVp({
         vp,
         signature: '',
         walletAddress: connectedAddress,
-        callbackUrl: '',
+        sessionId: form.sessionId,
+        submitEndpoint: form.submitEndpoint,
       });
 
       setStatusMessage(`예매용 VP JSON을 생성했습니다. Holder: ${shortenAddress(connectedAddress)}`);
@@ -320,34 +406,20 @@ export default function VpCreatePage() {
   };
 
   const saveSignedVp = ({ vp, nextSignature, nextWalletAddress }) => {
-    let nextCallbackUrl = '';
-
-    if (form.callback) {
-      nextCallbackUrl = buildCallbackUrl({
-        callback: form.callback,
-        vp,
-        signature: nextSignature,
-        eventId: form.eventId,
-        seat: form.seat,
-      });
-    }
-
     setWalletAddress(nextWalletAddress);
     const nextProfile = { ...(profile || {}), walletAddress: nextWalletAddress };
     saveHolderProfile(nextProfile);
     setProfile(nextProfile);
     setVpPayload(vp);
     setSignature(nextSignature);
-    setCallbackUrl(nextCallbackUrl);
 
     saveLastVp({
       vp,
       signature: nextSignature,
       walletAddress: nextWalletAddress,
-      callbackUrl: nextCallbackUrl,
+      sessionId: form.sessionId,
+      submitEndpoint: form.submitEndpoint,
     });
-
-    return nextCallbackUrl;
   };
 
   const signVpWithMetaMask = async () => {
@@ -384,9 +456,23 @@ export default function VpCreatePage() {
         nextWalletAddress: signerAddress,
       });
 
-      setStatusMessage(`MetaMask로 VP를 서명했습니다. Signer: ${shortenAddress(signerAddress)}`);
+      setIsSubmitting(true);
+      setStatusMessage('VP 서명이 완료되었습니다. 예매 세션으로 제출 중입니다...');
+      const result = await submitBookingSession({
+        submitEndpoint: form.submitEndpoint,
+        vp,
+        signature: nextSignature,
+        eventId: form.eventId,
+        seat: form.seat,
+      });
+
+      setSubmitResult(result);
+      setStatusMessage('VP 제출이 완료되었습니다. PC 예매 화면에서 결과를 확인하세요.');
     } catch (nextError) {
       setError(nextError.message || 'VP 서명에 실패했습니다.');
+      setIsSubmitting(false);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -404,18 +490,6 @@ export default function VpCreatePage() {
     setStatusMessage('Signature를 클립보드에 복사했습니다.');
   };
 
-  const copyCallbackUrl = async () => {
-    if (!callbackUrl) return;
-
-    await navigator.clipboard.writeText(callbackUrl);
-    setStatusMessage('callback URL을 클립보드에 복사했습니다.');
-  };
-
-  const openCallbackUrl = () => {
-    if (!callbackUrl) return;
-    window.location.href = callbackUrl;
-  };
-
   return (
     <section className="content-stack">
       <div className="page-header">
@@ -423,14 +497,14 @@ export default function VpCreatePage() {
         <h2>예매 VP 생성</h2>
         <p>
           C 웹의 예매 QR을 읽고 저장된 VC로 VP를 만든 뒤, compact JSON.stringify(vp) 원문에
-          지갑 서명을 붙여 callback URL로 돌려보냅니다.
+          지갑 서명을 붙여 백엔드 예매 세션으로 제출합니다.
         </p>
       </div>
 
       <section className="panel flow-panel">
         <div className="section-title">
           <h3>예매 QR 처리</h3>
-          <span>qrush://create-vp?eventId=...&seat=...&callback=... 형식입니다.</span>
+          <span>QRushBookingSession 세션 QR을 읽어 예매 세션에 제출합니다.</span>
         </div>
 
         <label>
@@ -438,7 +512,7 @@ export default function VpCreatePage() {
           <textarea
             value={bookingQrText}
             onChange={(event) => setBookingQrText(event.target.value)}
-            placeholder="qrush://create-vp?eventId=...&seat=...&callback=..."
+            placeholder="http://.../vp?session64=..."
             rows={4}
           />
         </label>
@@ -482,8 +556,13 @@ export default function VpCreatePage() {
           </label>
 
           <label>
-            callback
-            <input name="callback" value={form.callback} onChange={updateForm} />
+            sessionId
+            <input name="sessionId" value={form.sessionId} onChange={updateForm} />
+          </label>
+
+          <label>
+            submitEndpoint
+            <input name="submitEndpoint" value={form.submitEndpoint} onChange={updateForm} />
           </label>
         </section>
 
@@ -506,8 +585,8 @@ export default function VpCreatePage() {
             VP JSON만 생성
           </button>
 
-          <button className="primary-button" type="button" onClick={signVpWithMetaMask}>
-            MetaMask로 VP 서명
+          <button className="primary-button" type="button" onClick={signVpWithMetaMask} disabled={isSubmitting}>
+            {isSubmitting ? '예매 세션 제출 중' : 'MetaMask로 VP 서명 후 제출'}
           </button>
         </div>
 
@@ -532,11 +611,15 @@ export default function VpCreatePage() {
             <input readOnly value={signature} placeholder="아직 서명이 없습니다." />
           </label>
 
-          {callbackUrl && (
-            <label>
-              Callback URL
-              <textarea readOnly rows={4} value={callbackUrl} />
-            </label>
+          {submitResult && (
+            <div className={submitResult.success === false ? 'status-panel warning' : 'status-panel success'}>
+              <h3>{submitResult.success === false ? '예매 세션 제출 실패' : '예매 세션 제출 완료'}</h3>
+              <p>
+                {submitResult.success === false
+                  ? submitResult.reason || submitResult.error || 'PC 예매 화면에 실패 결과가 반영됩니다.'
+                  : 'PC 예매 화면에 결과가 자동으로 반영됩니다.'}
+              </p>
+            </div>
           )}
 
           <div className="button-row">
@@ -548,13 +631,6 @@ export default function VpCreatePage() {
               Signature 복사
             </button>
 
-            <button className="secondary-button" type="button" onClick={copyCallbackUrl} disabled={!callbackUrl}>
-              callback URL 복사
-            </button>
-
-            <button className="primary-button" type="button" onClick={openCallbackUrl} disabled={!callbackUrl}>
-              C 예매 화면으로 돌아가기
-            </button>
           </div>
         </section>
       )}

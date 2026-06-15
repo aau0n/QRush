@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ethers } from 'ethers';
 import QRCodePanel from '../components/QRCodePanel.jsx';
-import { mintTicket, verifyVp } from '../api/qrushApi.js';
+import { createBookingSession, getBookingSessionResult, mintTicket, verifyVp } from '../api/qrushApi.js';
 import { mockEvents, seatRows } from '../data/mockData.js';
 import { DAPP_BASE_URL } from '../config.js';
 
@@ -27,6 +27,23 @@ function gradIndex(id) {
   return n % 6;
 }
 
+function encodePayload64(value) {
+  const bytes = new TextEncoder().encode(value);
+  let binary = '';
+  bytes.forEach((byte) => {
+    binary += String.fromCharCode(byte);
+  });
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function decodePayload64(value) {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+  const binary = atob(padded);
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
 export default function BookingPage() {
   const query = new URLSearchParams(window.location.search);
   const eventId = query.get('eventId') || mockEvents[0].id;
@@ -39,23 +56,92 @@ export default function BookingPage() {
   const [bookingResult, setBookingResult] = useState(null);
   const [status, setStatus] = useState('idle');
   const [received, setReceived] = useState(false);
+  const [bookingSession, setBookingSession] = useState(null);
+  const [sessionError, setSessionError] = useState('');
   const handledCallback = useRef(false);
 
-  // 예매 QR — D 웹앱(/vp) plain HTTP 링크. MetaMask 앱 내 QR 스캐너로 스캔한다
-  // (아이폰 기본 카메라 X). link.metamask.io/dapp은 https 강제라 로컬 http Vite
-  // 서버에서 TLS 오류가 나므로 사용하지 않음.
-  //   http://<D_APP_HOST>:5174/vp?eventId=..&seat=..&callback=<encoded C booking URL>
-  // callback은 같은 WiFi에서 접근 가능한 IP여야 함(window.location.origin = 접속한 IP).
-  const deeplink = useMemo(() => {
-    const params = new URLSearchParams({
-      eventId: event.id,
-      seat: selectedSeat,
-      callback: `${window.location.origin}/booking`,
-    });
-    return `${DAPP_BASE_URL}/vp?${params.toString()}`;
+  useEffect(() => {
+    let active = true;
+
+    const timer = window.setTimeout(async () => {
+      setBookingSession(null);
+      setSessionError('');
+      setReceived(false);
+      setBookingResult(null);
+      setStatus('idle');
+
+      try {
+        const session = await createBookingSession({ eventId: event.id, seatId: selectedSeat });
+        if (!active) return;
+        setBookingSession(session);
+      } catch (error) {
+        if (!active) return;
+        setSessionError(error.message || '예매 세션 생성에 실패했습니다.');
+      }
+    }, 0);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
   }, [event.id, selectedSeat]);
 
-  // verify-vp → mint-ticket (수동 제출과 callback 자동 제출이 공유)
+  useEffect(() => {
+    if (!bookingSession?.sessionId) return undefined;
+
+    const poll = window.setInterval(async () => {
+      try {
+        const result = await getBookingSessionResult(bookingSession.sessionId);
+        if (!result.decided) return;
+
+        setReceived(true);
+        setStatus('done');
+        setBookingResult(
+          result.success
+            ? {
+                ok: true,
+                tokenId: result.tokenId,
+                txHash: result.txHash,
+                message: '예매가 완료되었습니다.',
+                checks: result.checks,
+              }
+            : {
+                ok: false,
+                message: result.reason || result.error || '예매 처리 실패',
+                checks: result.checks,
+              },
+        );
+        window.clearInterval(poll);
+      } catch (error) {
+        setSessionError(error.message || '예매 결과 확인에 실패했습니다.');
+      }
+    }, 1500);
+
+    return () => window.clearInterval(poll);
+  }, [bookingSession?.sessionId]);
+
+  // 예매 QR — PC가 만든 booking session payload를 D 앱(/vp) URL 안에 담는다.
+  // 폰 앱은 VP+서명을 submitEndpoint로 POST하고, PC 예매 페이지는 resultEndpoint를 폴링한다.
+  const deeplink = useMemo(() => {
+    if (!bookingSession) return '';
+
+    const sessionPayload = {
+      type: 'QRushBookingSession',
+      sessionId: bookingSession.sessionId,
+      submitEndpoint: bookingSession.submitEndpoint,
+      resultEndpoint: bookingSession.resultEndpoint,
+      eventId: bookingSession.eventId || event.id,
+      seatId: bookingSession.seatId || selectedSeat,
+      expiresIn: bookingSession.expiresIn,
+    };
+
+    const params = new URLSearchParams({
+      session64: encodePayload64(JSON.stringify(sessionPayload)),
+    });
+    return `${DAPP_BASE_URL}/vp?${params.toString()}`;
+  }, [bookingSession, event.id, selectedSeat]);
+
+  // verify-vp → mint-ticket (셀프 테스트/이전 URL fallback용)
   const runBooking = useCallback(
     async (parsedVp, sig) => {
       setStatus('loading');
@@ -89,24 +175,29 @@ export default function BookingPage() {
     [event.id, selectedSeat],
   );
 
-  // D가 서명 후 callback?vp=..&signature=..&eventId=..&seat=.. 로 돌아옴.
-  // vp/signature가 있으면 자동으로 읽어 폼을 채우고 제출까지 실행한다.
+  // 이전 방식 URL fallback: vp/signature가 있으면 폼을 채우고 제출까지 실행한다.
   useEffect(() => {
     if (handledCallback.current) return;
     const q = new URLSearchParams(window.location.search);
-    const vpParam = q.get('vp');
+    const encodedVpParam = q.get('vp64');
+    const rawVpParam = q.get('vp');
     const sigParam = q.get('signature');
-    if (!vpParam || !sigParam) return;
+    if ((!encodedVpParam && !rawVpParam) || !sigParam) return;
 
     handledCallback.current = true;
     let parsed;
     try {
+      const vpParam = encodedVpParam ? decodePayload64(encodedVpParam) : rawVpParam;
       parsed = JSON.parse(vpParam);
     } catch {
-      return;
+      const t = window.setTimeout(() => {
+        setBookingResult({ ok: false, message: 'D 앱에서 받은 VP JSON을 읽지 못했습니다.' });
+        setStatus('done');
+      }, 0);
+      return () => window.clearTimeout(t);
     }
 
-    // 민감 파라미터(vp/signature)는 URL에서 제거 — 새로고침 재제출 방지.
+    // 민감 파라미터(vp64/signature)는 URL에서 제거 — 새로고침 재제출 방지.
     const clean = new URLSearchParams({ eventId, seat: q.get('seat') || selectedSeat });
     window.history.replaceState({}, '', `/booking?${clean.toString()}`);
 
@@ -274,7 +365,12 @@ export default function BookingPage() {
           </button>
           <div className="summary-qr">
             <QRCodePanel label="D 앱으로 스캔할 VP 생성 QR" value={deeplink} />
-            <p className="hint-text">폰 MetaMask 앱 내 브라우저로 열면 서명 후 자동 복귀합니다.</p>
+            <p className="hint-text">
+              {bookingSession
+                ? `세션 ${bookingSession.sessionId} 대기 중 · 폰에서 제출하면 PC 화면이 자동 갱신됩니다.`
+                : '예매 세션을 준비하고 있습니다.'}
+            </p>
+            {sessionError && <p className="error-text">{sessionError}</p>}
           </div>
         </aside>
       </div>
@@ -282,7 +378,7 @@ export default function BookingPage() {
       <section className="panel form-panel">
         <div className="section-title">
           <h3>VP 검증 + 티켓 발급</h3>
-          <span>수동 붙여넣기</span>
+          <span>PC는 세션 결과를 자동으로 기다립니다</span>
         </div>
 
         <p className="disclosure-note">
@@ -292,7 +388,13 @@ export default function BookingPage() {
 
         {received && (
           <div className="status-row success">
-            <span>D 앱에서 VP·서명 수신 — 자동 검증·발급 진행</span>
+            <span>D 앱 제출 결과 수신 — 예매 상태 갱신 완료</span>
+          </div>
+        )}
+
+        {!received && bookingSession && (
+          <div className="status-row">
+            <span>폰 D 앱에서 VP를 제출할 때까지 대기 중입니다.</span>
           </div>
         )}
 
