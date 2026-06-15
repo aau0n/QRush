@@ -11,6 +11,12 @@ function getSeatLabel(ticket) {
   return ticket.seat || ticket.seatId || '-';
 }
 
+function badgeClass(status) {
+  if (status === 'VALID') return 'badge valid';
+  if (status === 'CANCELLED') return 'badge cancelled';
+  return 'badge used';
+}
+
 export default function TicketsPage() {
   const [walletAddress, setWalletAddress] = useState('');
   const [resolvedWalletAddress, setResolvedWalletAddress] = useState('');
@@ -44,11 +50,13 @@ export default function TicketsPage() {
       tokenId,
       walletAddress: resolvedWalletAddress || walletAddress,
     });
-    setTickets((current) => current.filter((t) => t.tokenId !== tokenId));
+    setTickets((current) =>
+      current.map((t) => (t.tokenId === tokenId ? { ...t, status: 'CANCELLED' } : t)),
+    );
     setNote(
       res.serverHandled
         ? `${tokenId}번 티켓 예매를 취소했습니다.`
-        : '서버 취소 API가 없어 목록에서만 제거했습니다. (실제 온체인 취소는 A의 /api/ticket/cancel 필요)',
+        : `${tokenId}번 티켓을 취소 처리했습니다. (mock — 새로고침 시 초기화)`,
     );
     setCancellingId('');
   };
@@ -100,9 +108,7 @@ export default function TicketsPage() {
                   <span>{ticket.tokenId}</span>
                   <span>{getEventTitle(ticket)}</span>
                   <span>{getSeatLabel(ticket)}</span>
-                  <span className={ticket.status === 'VALID' ? 'badge valid' : 'badge used'}>
-                    {ticket.status}
-                  </span>
+                  <span className={badgeClass(ticket.status)}>{ticket.status}</span>
                   <span>
                     {ticket.status === 'VALID' ? (
                       <button
