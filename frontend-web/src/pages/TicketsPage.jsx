@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { getTicketsByWallet } from '../api/qrushApi.js';
+import { cancelTicket, getTicketsByWallet } from '../api/qrushApi.js';
 import { mockEvents } from '../data/mockData.js';
 
 function getEventTitle(ticket) {
@@ -17,11 +17,14 @@ export default function TicketsPage() {
   const [tickets, setTickets] = useState([]);
   const [status, setStatus] = useState('idle');
   const [errorMessage, setErrorMessage] = useState('');
+  const [note, setNote] = useState('');
+  const [cancellingId, setCancellingId] = useState('');
 
   const searchTickets = async (event) => {
     event.preventDefault();
     setStatus('loading');
     setErrorMessage('');
+    setNote('');
 
     try {
       const result = await getTicketsByWallet(walletAddress);
@@ -32,6 +35,22 @@ export default function TicketsPage() {
       setErrorMessage(error.message || '티켓 조회에 실패했습니다.');
       setStatus('error');
     }
+  };
+
+  const handleCancel = async (tokenId) => {
+    if (!window.confirm('이 티켓 예매를 취소할까요?')) return;
+    setCancellingId(tokenId);
+    const res = await cancelTicket({
+      tokenId,
+      walletAddress: resolvedWalletAddress || walletAddress,
+    });
+    setTickets((current) => current.filter((t) => t.tokenId !== tokenId));
+    setNote(
+      res.serverHandled
+        ? `${tokenId}번 티켓 예매를 취소했습니다.`
+        : '서버 취소 API가 없어 목록에서만 제거했습니다. (실제 온체인 취소는 A의 /api/ticket/cancel 필요)',
+    );
+    setCancellingId('');
   };
 
   return (
@@ -73,6 +92,7 @@ export default function TicketsPage() {
               <span>공연</span>
               <span>좌석</span>
               <span>상태</span>
+              <span>관리</span>
             </div>
             {tickets.length > 0 ? (
               tickets.map((ticket) => (
@@ -83,6 +103,20 @@ export default function TicketsPage() {
                   <span className={ticket.status === 'VALID' ? 'badge valid' : 'badge used'}>
                     {ticket.status}
                   </span>
+                  <span>
+                    {ticket.status === 'VALID' ? (
+                      <button
+                        className="cancel-btn"
+                        disabled={cancellingId === ticket.tokenId}
+                        onClick={() => handleCancel(ticket.tokenId)}
+                        type="button"
+                      >
+                        {cancellingId === ticket.tokenId ? '취소 중' : '예매 취소'}
+                      </button>
+                    ) : (
+                      '-'
+                    )}
+                  </span>
                 </div>
               ))
             ) : (
@@ -91,9 +125,12 @@ export default function TicketsPage() {
                 <span>조회된 티켓이 없습니다</span>
                 <span>-</span>
                 <span>EMPTY</span>
+                <span>-</span>
               </div>
             )}
           </div>
+
+          {note && <p className="hint-text">{note}</p>}
         </section>
       )}
     </section>

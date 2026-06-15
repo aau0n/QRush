@@ -166,6 +166,27 @@ export async function getTicketsByWallet(walletAddress) {
   return { walletAddress: normalizeWalletAddress(walletAddress), tickets: [] };
 }
 
+// POST /api/ticket/cancel  (예매 취소)
+// 백엔드가 구현하면 온체인 TicketNFT.cancelTicket까지 처리한다.
+// mock이거나 미구현(에러)이면 serverHandled:false → 화면 목록에서만 제거하는 폴백.
+export async function cancelTicket({ tokenId, walletAddress }) {
+  if (IS_MOCK) {
+    await delay();
+    return { ok: true, serverHandled: false };
+  }
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/api/ticket/cancel`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tokenId, wallet: walletAddress }),
+    });
+    return { ok: res.ok, serverHandled: res.ok };
+  } catch {
+    return { ok: false, serverHandled: false };
+  }
+}
+
 // GET /api/gate/result/:nonce  (C 게이트 단말기 폴링)
 // A가 verify-proof 결과를 nonce(십진 field)로 저장해두면 게이트가 폴링해 초록/빨강 표시.
 // C가 기대하는 응답(권장 — A는 이 형태로 구현):
