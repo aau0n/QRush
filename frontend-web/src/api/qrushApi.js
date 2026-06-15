@@ -5,10 +5,33 @@ import { getAddress } from 'ethers';
 
 const delay = (ms = 350) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function isLocalHost(hostname) {
+  return ['localhost', '127.0.0.1', '::1'].includes(hostname);
+}
+
+function rewriteLocalhostForPhone(urlString) {
+  if (typeof window === 'undefined') return urlString;
+
+  const pageHost = window.location.hostname;
+  if (!pageHost || isLocalHost(pageHost)) return urlString;
+
+  try {
+    const url = new URL(urlString);
+    if (!isLocalHost(url.hostname)) return urlString;
+
+    url.hostname = pageHost;
+    return url.toString().replace(/\/$/, '');
+  } catch {
+    return urlString;
+  }
+}
+
 function toApiUrl(pathOrUrl) {
   if (!pathOrUrl) return '';
-  if (/^https?:\/\//.test(pathOrUrl)) return pathOrUrl;
-  return `${API_BASE_URL}${pathOrUrl.startsWith('/') ? pathOrUrl : `/${pathOrUrl}`}`;
+  if (/^https?:\/\//.test(pathOrUrl)) return rewriteLocalhostForPhone(pathOrUrl);
+  return rewriteLocalhostForPhone(
+    `${API_BASE_URL}${pathOrUrl.startsWith('/') ? pathOrUrl : `/${pathOrUrl}`}`,
+  );
 }
 
 // 실제 서버가 설정돼 있으면 fetch, 아니면 mock 폴백.
