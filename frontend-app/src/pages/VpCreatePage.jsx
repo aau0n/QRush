@@ -258,6 +258,15 @@ function getInitialBookingQrText() {
   const deeplink = params.get('deeplink');
   if (deeplink) return deeplink;
 
+  if (
+    params.has('session64') ||
+    params.has('session') ||
+    params.has('sessionId') ||
+    params.has('submitEndpoint')
+  ) {
+    return window.location.href;
+  }
+
   const eventId = params.get('eventId');
   const seat = params.get('seat');
   if (!eventId || !seat) return '';
