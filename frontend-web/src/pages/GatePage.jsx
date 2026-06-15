@@ -33,24 +33,21 @@ export default function GatePage() {
     return () => window.clearTimeout(timeoutId);
   }, [refreshNonce]);
 
+  // 카운트다운은 표시만 — 0초가 돼도 새 nonce로 자동 갱신하지 않는다.
+  // (스캔→증명 생성 중에 nonce가 바뀌면 "유효하지 않은 nonce"가 되므로)
+  // 다음 입장자는 아래 'nonce 재발급' 버튼으로 수동 갱신한다.
   useEffect(() => {
     if (!nonce || status !== 'waiting') return undefined;
 
     const timer = window.setInterval(() => {
-      setCountdown((current) => {
-        if (current <= 1) {
-          refreshNonce();
-          return expiresIn;
-        }
-        return current - 1;
-      });
+      setCountdown((current) => (current <= 1 ? 0 : current - 1));
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [nonce, refreshNonce, status, expiresIn]);
+  }, [nonce, status]);
 
   // 실서버 모드: A의 결과 저장소를 nonce로 폴링해 초록/빨강 + publicSignals 표시.
-  // 엔드포인트 미구현 시엔 decided:false라 조용히 대기 유지(아래 데모 버튼으로 폴백).
+  // nonce가 고정이라 증명이 늦게 와도 같은 nonce를 계속 폴링해 결과를 받는다.
   useEffect(() => {
     if (IS_MOCK || !nonce || status !== 'waiting') return undefined;
 
@@ -64,13 +61,6 @@ export default function GatePage() {
 
     return () => window.clearInterval(poll);
   }, [nonce, status]);
-
-  // 결과 표시 후 잠시 뒤 새 nonce로 자동 리셋 — 다음 입장자를 받는다.
-  useEffect(() => {
-    if (status !== 'allowed' && status !== 'denied') return undefined;
-    const resetId = window.setTimeout(() => refreshNonce(), 6000);
-    return () => window.clearTimeout(resetId);
-  }, [status, refreshNonce]);
 
   // 입장 QR — D 웹앱 /entry로 들어가는 HTTP 링크.
   // http://<D_APP_HOST>:5174/entry?nonce=<십진>&endpoint=<encoded verify-proof>&expiresIn=30
@@ -114,7 +104,8 @@ export default function GatePage() {
   const notSeen = ['이름', '생년월일', '지갑 주소', '누구인지(신원)', 'vcSecret', '개인키'];
 
   return (
-    <section className="gate-layout">
+    <section className="gate-page">
+      <div className="gate-layout">
       <div className="gate-main">
         <p className="eyebrow">04 Gate Terminal</p>
         <h2>게이트 단말기</h2>
@@ -123,7 +114,7 @@ export default function GatePage() {
           <QRCodePanel label="스캔용 입장 nonce QR" value={qrPayload} />
           <div className="countdown">
             <span>{loading ? '--' : countdown}</span>
-            <small>초 후 새 nonce</small>
+            <small>초 남음</small>
           </div>
         </div>
 
@@ -131,6 +122,11 @@ export default function GatePage() {
           <span>nonce (hex 표시 · QR엔 십진 field)</span>
           <code>{nonceHex || nonce || '생성 중'}</code>
         </div>
+
+        <button className="secondary-button gate-reissue" onClick={refreshNonce} type="button">
+          nonce 재발급
+        </button>
+
         <p className="hint-text">
           proof 수신 endpoint: <code>{verifyProofUrl() || '(서버 미설정 — mock)'}</code>
         </p>
@@ -186,27 +182,27 @@ export default function GatePage() {
           </div>
         )}
 
-        <div className="gate-controls">
-          <button className="secondary-button" onClick={demoAllow} type="button">
-            정상 입장(데모)
-          </button>
-          <button className="secondary-button" onClick={demoReplay} type="button">
-            재사용 공격(데모)
-          </button>
-          <button className="secondary-button" onClick={demoExpired} type="button">
-            nonce 만료(데모)
-          </button>
-          <button className="secondary-button" onClick={refreshNonce} type="button">
-            nonce 재발급
-          </button>
-        </div>
+      </aside>
+      </div>
+
+      <div className="gate-demo-footer">
+        <span className="demo-tag">데모용</span>
+        <button className="demo-btn" onClick={demoAllow} type="button">
+          정상 입장
+        </button>
+        <button className="demo-btn" onClick={demoReplay} type="button">
+          재사용 공격
+        </button>
+        <button className="demo-btn" onClick={demoExpired} type="button">
+          nonce 만료
+        </button>
         {!IS_MOCK && (
           <p className="hint-text">
             ※ D가 proof를 endpoint로 보내면 게이트는 <code>GET /api/gate/result/:nonce</code>를
-            1.5초 간격 폴링해 결과+publicSignals를 표시합니다. (미구현 시 위 데모 버튼으로 폴백)
+            1.5초 간격 폴링해 결과+publicSignals를 표시합니다. (미구현 시 데모 버튼으로 폴백)
           </p>
         )}
-      </aside>
+      </div>
     </section>
   );
 }

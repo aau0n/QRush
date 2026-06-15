@@ -992,3 +992,42 @@ dd {
   .booking-grid { grid-template-columns: 1fr; }
   .booking-summary { position: static; }
 }
+
+/* --- C 추가: 게이트 레이아웃 + 하단 데모 영역 --- */
+.gate-page {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.gate-reissue {
+  align-self: flex-start;
+  margin-top: 4px;
+}
+.gate-demo-footer {
+  align-items: center;
+  border-top: 1px dashed #e5e7eb;
+  color: #b0b6c0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+  opacity: 0.7;
+  padding-top: 14px;
+}
+.gate-demo-footer:hover { opacity: 1; }
+.demo-tag {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.demo-btn {
+  background: #f4f5f7;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  color: #8b909a;
+  font-size: 0.76rem;
+  padding: 5px 11px;
+}
+.demo-btn:hover { background: #e9ebef; color: #4b5563; }
+.gate-demo-footer .hint-text { flex-basis: 100%; margin: 6px 0 0; }
