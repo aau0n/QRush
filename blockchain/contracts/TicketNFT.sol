@@ -18,12 +18,12 @@ import "./VCRegistry.sol";
  * Zero Trust 설계 원칙:
  *   - 입장 시 개인정보 없이 ZKP 증명값만 체인에 제출
  *   - 예매 서버 다운 시에도 게이트가 로컬 노드로 직접 useTicket() 호출 가능
- *   - nonce 유효시간(15초) 검증으로 QR 캡처 재사용 방지
+ *   - nonce 유효시간(30초) 검증으로 QR 캡처 재사용 방지
  */
 contract TicketNFT is ERC721, Ownable {
 
     // ─── 상수 ────────────────────────────────────────────────────────────────
-    uint256 public constant NONCE_TTL = 15; // nonce 유효시간 (초)
+    uint256 public constant NONCE_TTL = 30; // nonce 유효시간 (초)
 
     // ─── 열거형 ──────────────────────────────────────────────────────────────
     enum TicketStatus {
@@ -151,7 +151,7 @@ contract TicketNFT is ERC721, Ownable {
         TicketData storage ticket = _tickets[tokenId];
         require(ticket.status == TicketStatus.VALID, "TicketNFT: ticket not valid");
 
-        // ── 2. nonce TTL 검증 (15초 이내) ──────────────────────────────────
+        // ── 2. nonce TTL 검증 (30초 이내) ──────────────────────────────────
         uint256 createdAt = nonceCreatedAt[nonce];
         require(createdAt != 0, "TicketNFT: nonce not registered");
         require(block.timestamp <= createdAt + NONCE_TTL, "TicketNFT: nonce expired");

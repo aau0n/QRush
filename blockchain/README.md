@@ -64,6 +64,6 @@ function verifyProof(
 - ✅ 이미 사용된 티켓 재입장 거부
 - ✅ 잘못된 ZKP 거부 (stub 기준)
 - ✅ nonce 재사용 방지
-- ✅ nonce TTL(15초) 초과 거부 (QR 캡처 암표 방지)
+- ✅ nonce TTL(30초) 초과 거부 (QR 캡처 암표 방지)
 - ✅ 폐기된 VC 거부
 - ✅ 서버 다운 시뮬레이션 — 예매 서버 없이 로컬 노드로 입장 처리

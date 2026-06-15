@@ -237,9 +237,9 @@ describe("QRush — Full Contract Suite", function () {
       ).to.be.revertedWith("TicketNFT: nonce already used");
     });
 
-    it("nonce TTL(15초) 초과 시 입장 불가 — QR 캡처 암표 방지", async function () {
-      // 15초 경과
-      await time.increase(16);
+    it("nonce TTL(30초) 초과 시 입장 불가 — QR 캡처 암표 방지", async function () {
+      // 30초 경과
+      await time.increase(31);
 
       await expect(
         ticketNFT.useTicket(
