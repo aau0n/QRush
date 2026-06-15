@@ -889,6 +889,20 @@ export default function VpCreatePage() {
     setStatusMessage('Signature를 클립보드에 복사했습니다.');
   };
 
+  // MetaMask 인앱 브라우저면 window.ethereum이 주입돼 in-page 서명이 안정적이다.
+  // Safari 등 외부 브라우저면 딥링크 왕복이 새로고침으로 깨지므로 인앱 브라우저로 유도한다.
+  const hasInjectedProvider = typeof window !== 'undefined' && Boolean(window.ethereum);
+
+  const openInMetaMaskBrowser = () => {
+    const { host, pathname, search } = window.location;
+    window.location.href = `https://metamask.app.link/dapp/${host}${pathname}${search}`;
+  };
+
+  const copyCurrentUrl = async () => {
+    await navigator.clipboard.writeText(window.location.href);
+    setStatusMessage('현재 주소를 복사했습니다. MetaMask 앱 → 브라우저 주소창에 붙여넣어 여세요.');
+  };
+
   return (
     <section className="content-stack">
       <div className="page-header">
@@ -899,6 +913,24 @@ export default function VpCreatePage() {
           지갑 서명을 붙여 백엔드 예매 세션으로 제출합니다.
         </p>
       </div>
+
+      {!hasInjectedProvider && (
+        <section className="panel mm-open-hint">
+          <h3>MetaMask 브라우저에서 열어 주세요</h3>
+          <p>
+            지금 외부 브라우저(Safari 등)에서 열려 있어 서명 결과가 안정적으로 돌아오지 않습니다.
+            <strong> MetaMask 앱 내 브라우저</strong>에서 열면 서명이 그 자리에서 바로 완료됩니다.
+          </p>
+          <div className="button-row">
+            <button className="primary-button" type="button" onClick={openInMetaMaskBrowser}>
+              MetaMask 브라우저에서 열기
+            </button>
+            <button className="secondary-button" type="button" onClick={copyCurrentUrl}>
+              주소 복사
+            </button>
+          </div>
+        </section>
+      )}
 
       <section className="panel flow-panel">
         <div className="section-title">
