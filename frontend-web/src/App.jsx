@@ -43,13 +43,13 @@ function App() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
-        <div>
-          <p className="eyebrow">QRush Web</p>
-          <h1>예매 사이트와 게이트 단말기</h1>
-        </div>
+      <header className="topbar">
+        <button className="brand" onClick={() => navigate('/events')} type="button">
+          <span className="brand-name">QRush</span>
+          <span className="brand-tag">DID와 NFT를 이용한 새로운 티켓 시스템</span>
+        </button>
 
-        <nav className="nav-list" aria-label="QRush web pages">
+        <nav className="topnav" aria-label="QRush web pages">
           {navItems.map((item) => (
             <button
               className={path === item.path ? 'nav-item active' : 'nav-item'}
@@ -61,7 +61,7 @@ function App() {
             </button>
           ))}
         </nav>
-      </aside>
+      </header>
 
       <main className="page">{renderPage()}</main>
     </div>

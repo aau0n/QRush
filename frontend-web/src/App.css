@@ -3,25 +3,57 @@
 }
 
 .app-shell {
-  display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
   min-height: 100vh;
 }
 
-.sidebar {
-  background: #111827;
-  color: #f8fafc;
+/* 상단바 (티켓링크 스타일) */
+.topbar {
+  align-items: center;
+  background: #ffffff;
+  border-bottom: 1px solid #ececf0;
   display: flex;
-  flex-direction: column;
-  gap: 28px;
-  justify-content: space-between;
-  padding: 28px;
+  flex-wrap: wrap;
+  gap: 18px 28px;
+  padding: 16px 36px;
+  position: sticky;
+  top: 0;
+  z-index: 20;
 }
 
-.sidebar h1 {
-  font-size: 1.65rem;
-  line-height: 1.2;
-  margin: 8px 0 0;
+.brand {
+  align-items: baseline;
+  background: none;
+  border: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 0;
+  text-align: left;
+}
+
+.brand-name {
+  color: #1b2b8f;
+  font-size: 1.7rem;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+  line-height: 1;
+}
+
+.brand-tag {
+  color: #4b5563;
+  font-size: 0.92rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.topnav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-left: auto;
 }
 
 .eyebrow {
@@ -33,45 +65,29 @@
   text-transform: uppercase;
 }
 
-.sidebar .eyebrow {
-  color: #93c5fd;
-}
-
-.nav-list {
-  display: grid;
-  gap: 8px;
-}
-
 .nav-item {
   background: transparent;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: #dbeafe;
-  justify-content: flex-start;
-  text-align: left;
-}
-
-.nav-item:hover,
-.nav-item.active {
-  background: #2563eb;
-  border-color: #2563eb;
-  color: white;
-}
-
-.sidebar-note {
-  background: rgba(255, 255, 255, 0.08);
+  border: none;
   border-radius: 8px;
-  display: grid;
-  gap: 8px;
-  padding: 16px;
+  color: #374151;
+  font-size: 1rem;
+  font-weight: 600;
+  padding: 9px 16px;
 }
 
-.sidebar-note span {
-  color: #cbd5e1;
-  font-size: 0.92rem;
+.nav-item:hover {
+  background: #f3f4f6;
+  color: #1b2b8f;
+}
+
+.nav-item.active {
+  background: #eef2ff;
+  color: #1b2b8f;
 }
 
 .page {
-  padding: 36px;
+  background: #ffffff;
+  padding: 32px 36px 48px;
 }
 
 .content-stack {
