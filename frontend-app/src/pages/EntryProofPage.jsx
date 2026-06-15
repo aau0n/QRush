@@ -56,23 +56,63 @@ function getInitialChallengeText() {
   if (challenge) return challenge;
 
   const nonce = params.get('nonce');
-  const endpoint = params.get('endpoint');
   if (!nonce) return '';
 
-  return JSON.stringify(
-    {
-      type: 'QRushGateChallenge',
-      nonce,
-      endpoint: endpoint || '/api/gate/verify-proof',
-      expiresIn: Number(params.get('expiresIn') || 30),
-    },
-    null,
-    2,
-  );
+  return JSON.stringify(buildGateChallengeFromParams(params), null, 2);
+}
+
+function buildGateChallengeFromParams(params) {
+  return {
+    type: 'QRushGateChallenge',
+    nonce: params.get('nonce') || '',
+    nonceHex: params.get('nonceHex') || undefined,
+    endpoint: params.get('endpoint') || '/api/gate/verify-proof',
+    expiresIn: Number(params.get('expiresIn') || 30),
+  };
+}
+
+function parseGateChallengeJson(rawValue) {
+  try {
+    return JSON.parse(rawValue);
+  } catch {
+    throw new Error('Gate QR JSON이 비어 있거나 끝까지 입력되지 않았습니다. Gate 화면의 QR 링크를 다시 스캔하거나 전체 JSON을 붙여넣어 주세요.');
+  }
 }
 
 function parseGateChallenge(rawValue) {
-  const parsed = JSON.parse(rawValue);
+  const trimmedValue = String(rawValue || '').trim();
+
+  if (!trimmedValue) {
+    throw new Error('Gate QR을 먼저 스캔하거나 Gate Challenge JSON을 붙여넣어 주세요.');
+  }
+
+  let parsed;
+
+  if (trimmedValue.startsWith('{')) {
+    parsed = parseGateChallengeJson(trimmedValue);
+  } else {
+    let parsedUrl;
+
+    try {
+      parsedUrl = new URL(trimmedValue, window.location.origin);
+    } catch {
+      parsed = parseGateChallengeJson(trimmedValue);
+    }
+
+    if (parsedUrl) {
+      const nestedChallenge = parsedUrl.searchParams.get('challenge');
+
+      if (nestedChallenge) {
+        return parseGateChallenge(nestedChallenge);
+      }
+
+      parsed = buildGateChallengeFromParams(parsedUrl.searchParams);
+    }
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error('Gate QR payload는 nonce와 endpoint를 가진 JSON 객체여야 합니다.');
+  }
 
   if (parsed.type !== 'QRushGateChallenge') {
     throw new Error('type이 QRushGateChallenge인 Gate QR payload만 사용할 수 있습니다.');
@@ -158,8 +198,18 @@ export default function EntryProofPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSyncingTickets, setIsSyncingTickets] = useState(false);
 
+  const handleChallengeTextChange = (event) => {
+    setChallengeText(event.target.value);
+    setParsedChallenge(null);
+    setEntryProof(null);
+    setGateResult(null);
+  };
+
   const fillSampleChallenge = () => {
     setChallengeText(JSON.stringify(sampleGateChallenge, null, 2));
+    setParsedChallenge(null);
+    setEntryProof(null);
+    setGateResult(null);
     setStatusMessage('샘플 Gate Challenge JSON을 입력했습니다.');
     setError('');
   };
@@ -316,7 +366,7 @@ export default function EntryProofPage() {
         <p className="eyebrow">04 Entry Proof</p>
         <h2>입장 증명 생성</h2>
         <p>
-          C 웹 Gate QR의 JSON을 읽고 nonce 십진값과 endpoint를 사용해 Groth16 proof를 생성한 뒤,
+          C 웹 Gate QR의 링크 또는 JSON을 읽고 nonce 십진값과 endpoint를 사용해 Groth16 proof를 생성한 뒤,
           서버의 verify-proof endpoint로 직접 제출합니다.
         </p>
       </div>
@@ -344,15 +394,15 @@ export default function EntryProofPage() {
         <section className="panel form-panel">
           <div className="section-title">
             <h3>Gate QR Payload 입력</h3>
-            <span>GatePage QR의 JSON 문자열 전체를 붙여넣습니다. nonceHex는 사용하지 않습니다.</span>
+            <span>GatePage QR 링크를 스캔하거나 Challenge JSON 문자열 전체를 붙여넣습니다. nonceHex는 사용하지 않습니다.</span>
           </div>
 
           <label>
-            Gate Challenge JSON
+            Gate Challenge QR 링크 또는 JSON
             <textarea
               value={challengeText}
-              onChange={(event) => setChallengeText(event.target.value)}
-              placeholder='{"type":"QRushGateChallenge","nonce":"field decimal","endpoint":"http://192.168.0.20:3000/api/gate/verify-proof","expiresIn":30}'
+              onChange={handleChallengeTextChange}
+              placeholder='http://192.168.0.20:5174/entry?nonce=field-decimal&endpoint=http%3A%2F%2F192.168.0.20%3A3000%2Fapi%2Fgate%2Fverify-proof&expiresIn=30'
               rows={10}
             />
           </label>
