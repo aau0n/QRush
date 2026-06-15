@@ -28,6 +28,13 @@ export function getMetaMaskConnectClient() {
         connectAndSign: (result) => {
           saveConnectSignResult(result);
         },
+        connectWith: (result) => {
+          saveConnectSignResult({
+            accounts: result.accounts,
+            chainId: result.chainId,
+            signature: result.result,
+          });
+        },
       },
     });
   }
@@ -85,13 +92,15 @@ export async function connectMetaMaskAccount() {
 
 export async function signMessageWithMetaMaskConnect(message) {
   const client = await getMetaMaskConnectClient();
-  const { accounts, signature } = await client.connectAndSign({
-    message,
+  const { accounts, result } = await client.connectWith({
+    method: 'personal_sign',
+    params: (account) => [message, account],
     chainIds: ['0x1'],
+    forceRequest: true,
   });
 
   return {
     address: accounts[0] || '',
-    signature,
+    signature: result,
   };
 }

@@ -816,7 +816,6 @@ export default function VpCreatePage() {
             {flowStep === 'submit' && '예매 세션 제출 중'}
             {!isProcessing && 'MetaMask로 VP 서명 후 제출'}
           </button>
-
         </div>
 
         {flowStep !== 'idle' && (
