@@ -5,6 +5,7 @@ const cors = require("cors");
 const gateRoutes = require("./routes/gate");
 const ticketRoutes = require("./routes/ticket");
 const vcRoutes = require("./routes/vc");
+const bookingRoutes = require("./routes/booking");
 
 const app = express();
 
@@ -16,6 +17,7 @@ app.use(express.json({ limit: "1mb" })); // proof JSON이 커서 limit 여유
 app.use("/api/gate", gateRoutes);
 app.use("/api/ticket", ticketRoutes);
 app.use("/api/vc", vcRoutes);
+app.use("/api/booking", bookingRoutes);
 
 // 4. 테스트 라우트
 app.get("/", (req, res) => {

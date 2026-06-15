@@ -27,6 +27,7 @@ const TICKET_NFT_ABI = [
   "function mintTicket(address to, uint256 eventId, uint256 seatId) returns (uint256)",
   "function registerNonce(uint256 nonce)",
   "function useTicket(uint256 tokenId, uint256 nonce, bytes32 vcHash, uint256 currentDate, uint256[2] pA, uint256[2][2] pB, uint256[2] pC)",
+  "function cancelTicket(uint256 tokenId)",
   "function ownerOf(uint256 tokenId) view returns (address)",
   "event TicketMinted(uint256 indexed tokenId, address indexed to, uint256 eventId, uint256 seatId)"
 ];
@@ -191,6 +192,22 @@ exports.useTicketNFT = async (tokenId, nonceField, vcHash, currentDate, proof) =
     ticketNFT.useTicket(tokenId, BigInt(nonceField), toBytes32(vcHash), BigInt(currentDate), pA, pB, pC, overrides)
   );
   return { txHash: receipt.hash };
+};
+
+/** 티켓 취소 (B의 cancelTicket). 서버 지갑이 authorizedMinter라 구매자 서명 불필요.
+ *  VALID 상태가 아니면 컨트랙트가 revert → 호출부에서 400 처리. */
+exports.cancelTicketNFT = async (tokenId) => {
+  if (MOCK) {
+    const t = mockState.tickets.get(String(tokenId));
+    if (!t) throw new Error("Ticket not found (mock)");
+    if (t.status !== "VALID") throw new Error("cannot cancel (mock)");
+    t.status = "CANCELLED";
+    return { txHash: "0xmock_cancel_" + tokenId };
+  }
+  initContracts();
+  const tx = await ticketNFT.cancelTicket(BigInt(tokenId));
+  await tx.wait();
+  return { txHash: tx.hash };
 };
 
 exports.ownerOfTicket = async (tokenId) => {

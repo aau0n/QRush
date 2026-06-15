@@ -18,6 +18,7 @@
  */
 const { ethers } = require("ethers");
 const blockchain = require("../services/blockchain");
+const bookingLogic = require("../services/bookingLogic");
 
 exports.registerVC = async (req, res) => {
   try {
@@ -48,20 +49,7 @@ exports.verifyVP = async (req, res) => {
       return res.status(400).json({ success: false, error: "vp and signature are required" });
     }
 
-    // 세 가지 체크를 각각 독립적으로 평가해서 결과를 함께 반환
-    // (예매 화면의 3대 체크 ✓/✗를 실제 검증결과로 표시하기 위함)
-    let signatureValid = false;
-    try {
-      const recovered = ethers.verifyMessage(JSON.stringify(vp), signature);
-      signatureValid = recovered.toLowerCase() === String(vp.holder).toLowerCase();
-    } catch (e) {
-      signatureValid = false;
-    }
-
-    const issuerTrusted = await blockchain.isTrustedIssuer(vp.issuer).catch(() => false);
-    const vcValid = await blockchain.isValidVC(vp.vcHash).catch(() => false);
-
-    const verified = signatureValid && issuerTrusted && vcValid;
+    const { verified, signatureValid, issuerTrusted, vcValid } = await bookingLogic.verifyVP(vp, signature);
     const checks = { signatureValid, issuerTrusted, vcValid };
 
     if (!verified) {

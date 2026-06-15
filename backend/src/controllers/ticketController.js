@@ -48,3 +48,51 @@ exports.getTicketsByWallet = async (req, res) => {
     res.status(500).json({ success: false, error: err.message });
   }
 };
+
+/**
+ * POST /api/ticket/cancel
+ * body: { tokenId, wallet? }   // wallet은 참고/검증용(선택)
+ * C 티켓 확인 페이지의 "예매 취소" 버튼이 호출. 온체인 cancelTicket 실행.
+ * 서버 지갑이 authorizedMinter라 구매자 서명 불필요.
+ */
+exports.cancelTicket = async (req, res) => {
+  try {
+    const { tokenId, wallet } = req.body;
+    if (tokenId == null) {
+      return res.status(400).json({ success: false, error: "tokenId is required" });
+    }
+
+    const ticket = await Ticket.findOne({ tokenId: String(tokenId) });
+    if (!ticket) {
+      return res.status(404).json({ success: false, error: "Ticket not found" });
+    }
+
+    // (선택) 소유자 검증: wallet이 오면 실제 구매자와 일치하는지 확인
+    if (wallet && String(ticket.buyerWallet).toLowerCase() !== String(wallet).toLowerCase()) {
+      return res.status(403).json({ success: false, error: "Wallet does not own this ticket" });
+    }
+
+    // 이미 사용/취소된 티켓은 취소 불가 (컨트랙트도 require(VALID)로 막지만 미리 거름)
+    if (ticket.status !== "VALID") {
+      return res.status(400).json({ success: false, error: `Cannot cancel: ticket status is ${ticket.status}` });
+    }
+
+    // 온체인 취소 (mock이면 인메모리 상태만)
+    let txHash = null;
+    try {
+      const r = await blockchain.cancelTicketNFT(tokenId);
+      txHash = r.txHash;
+    } catch (e) {
+      // 컨트랙트 revert(이미 USED/CANCELLED 등) → 400
+      return res.status(400).json({ success: false, error: `On-chain cancel failed: ${e.message}` });
+    }
+
+    // DB 상태 동기화
+    ticket.status = "CANCELLED";
+    await ticket.save();
+
+    res.json({ success: true, tokenId: String(tokenId), status: "CANCELLED", txHash });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
