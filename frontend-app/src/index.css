@@ -206,6 +206,68 @@ button:disabled {
   color: #92400e;
 }
 
+.auto-flow-panel {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+}
+
+.auto-flow-panel h3,
+.auto-flow-panel p {
+  margin: 0;
+}
+
+.auto-flow-panel p {
+  color: #475569;
+  margin-top: 6px;
+}
+
+.auto-flow-panel small {
+  color: #64748b;
+  display: block;
+  font-weight: 800;
+  margin-top: 10px;
+  overflow-wrap: anywhere;
+}
+
+.auto-flow-panel.proof,
+.auto-flow-panel.verify {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+}
+
+.auto-flow-panel.done {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+}
+
+.auto-flow-panel.error {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+.spinner {
+  animation: spin 0.8s linear infinite;
+  border: 3px solid #bfdbfe;
+  border-top-color: #2563eb;
+  border-radius: 999px;
+  flex: 0 0 auto;
+  height: 34px;
+  width: 34px;
+}
+
+.spinner.idle {
+  animation: none;
+  border-color: #e2e8f0;
+  border-top-color: #94a3b8;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .secondary-button {
   background: #e0f2fe;
   border: 0;

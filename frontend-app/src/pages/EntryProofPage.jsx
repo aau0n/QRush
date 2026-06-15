@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import JsonPreview from '../components/JsonPreview.jsx';
 import { mockHolderProfile } from '../data/mockWalletData.js';
 import { generateEntryProof } from '../services/zkpProof.js';
@@ -180,6 +180,41 @@ async function buildProofPayload({ challenge, ticket, profile, savedVc }) {
   };
 }
 
+async function submitProofPayload(challenge, proofPayload) {
+  const response = await fetch(challenge.endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(proofPayload.verifyProofBody),
+  });
+
+  const resultText = await response.text();
+  let result;
+
+  try {
+    result = resultText ? JSON.parse(resultText) : {};
+  } catch {
+    result = { message: resultText };
+  }
+
+  const gateResult = {
+    ok: response.ok,
+    status: response.status,
+    body: result,
+  };
+
+  if (!response.ok) {
+    throw new Error(result?.message || result?.error || `Gate verify failed (${response.status})`);
+  }
+
+  return gateResult;
+}
+
+function getChallengeKey(challenge, tokenId) {
+  return `${challenge.nonce}|${challenge.endpoint}|${tokenId || ''}`;
+}
+
 export default function EntryProofPage() {
   const [profile] = useState(() => loadHolderProfile(mockHolderProfile));
   const [savedVc] = useState(() => loadVc(null));
@@ -194,39 +229,116 @@ export default function EntryProofPage() {
   const [gateResult, setGateResult] = useState(null);
   const [statusMessage, setStatusMessage] = useState('');
   const [error, setError] = useState('');
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [flowStep, setFlowStep] = useState('idle');
+  const [isProcessing, setIsProcessing] = useState(false);
   const [isSyncingTickets, setIsSyncingTickets] = useState(false);
+  const isProcessingRef = useRef(false);
+  const handledChallengeKeyRef = useRef('');
 
   const handleChallengeTextChange = (event) => {
+    if (isProcessingRef.current) return;
+
+    handledChallengeKeyRef.current = '';
     setChallengeText(event.target.value);
     setParsedChallenge(null);
     setEntryProof(null);
     setGateResult(null);
+    setFlowStep('idle');
+    setStatusMessage('QR 값을 읽으면 자동으로 proof 생성과 Gate 제출을 진행합니다.');
+    setError('');
   };
 
   const fillSampleChallenge = () => {
+    if (isProcessingRef.current) return;
+
+    handledChallengeKeyRef.current = '';
     setChallengeText(JSON.stringify(sampleGateChallenge, null, 2));
     setParsedChallenge(null);
     setEntryProof(null);
     setGateResult(null);
+    setFlowStep('idle');
     setStatusMessage('샘플 Gate Challenge JSON을 입력했습니다.');
     setError('');
   };
 
-  const parseChallenge = () => {
+  const runAutomaticEntry = useCallback(async (rawChallengeText, { force = false } = {}) => {
+    if (isProcessingRef.current) return null;
+
     setError('');
-    setStatusMessage('');
-    setParsedChallenge(null);
+    setGateResult(null);
 
     try {
-      const parsed = parseGateChallenge(challengeText);
-      setParsedChallenge(parsed);
-      setStatusMessage('Gate Challenge를 정상적으로 읽었습니다.');
+      const challenge = parseGateChallenge(rawChallengeText);
+      const selectedTicket = tickets.find((ticket) => ticket.tokenId === selectedTokenId);
+      const challengeKey = getChallengeKey(challenge, selectedTicket?.tokenId || selectedTokenId);
+
+      if (!force && handledChallengeKeyRef.current === challengeKey) {
+        return null;
+      }
+
+      handledChallengeKeyRef.current = challengeKey;
+      isProcessingRef.current = true;
+      setIsProcessing(true);
+      setParsedChallenge(challenge);
+      setEntryProof(null);
+
+      if (!profile) {
+        throw new Error('Holder profile이 없습니다.');
+      }
+
+      if (!savedVc) {
+        throw new Error('저장된 VC가 없습니다. 먼저 VC 저장 화면에서 VC를 저장해 주세요.');
+      }
+
+      if (!selectedTicket) {
+        throw new Error('선택한 티켓을 찾을 수 없습니다.');
+      }
+
+      if (selectedTicket.status !== 'VALID') {
+        throw new Error('사용 가능한 티켓만 입장 증명에 사용할 수 있습니다.');
+      }
+
+      setFlowStep('proof');
+      setStatusMessage('증명 생성 중...');
+
+      const proofPayload = await buildProofPayload({
+        challenge,
+        ticket: selectedTicket,
+        profile,
+        savedVc,
+      });
+
+      setEntryProof(proofPayload);
+      saveLastEntryProof(proofPayload);
+
+      setFlowStep('verify');
+      setStatusMessage('입장 확인 중...');
+
+      const nextGateResult = await submitProofPayload(challenge, proofPayload);
+
+      setGateResult(nextGateResult);
+      setFlowStep('done');
+      setStatusMessage('입장 확인이 완료되었습니다.');
+      return proofPayload;
     } catch (nextError) {
-      setError(nextError.message || 'Gate Challenge 파싱에 실패했습니다.');
+      setFlowStep('error');
+      setError(nextError.message || '입장 proof 자동 처리에 실패했습니다.');
+      return null;
+    } finally {
+      isProcessingRef.current = false;
+      setIsProcessing(false);
     }
-  };
+  }, [profile, savedVc, selectedTokenId, tickets]);
+
+  useEffect(() => {
+    if (!challengeText.trim() || isProcessingRef.current) return undefined;
+
+    const timerId = window.setTimeout(() => {
+      runAutomaticEntry(challengeText);
+    }, 350);
+
+    return () => window.clearTimeout(timerId);
+  }, [challengeText, runAutomaticEntry]);
 
   const syncTickets = async () => {
     setError('');
@@ -257,108 +369,28 @@ export default function EntryProofPage() {
     }
   };
 
-  const createEntryProof = async () => {
-    setError('');
-    setStatusMessage('');
-    setGateResult(null);
-    setIsGenerating(true);
-
-    try {
-      if (!profile) {
-        throw new Error('Holder profile이 없습니다.');
-      }
-
-      if (!savedVc) {
-        throw new Error('저장된 VC가 없습니다. 먼저 VC 저장 화면에서 VC를 저장해 주세요.');
-      }
-
-      const challenge = parsedChallenge || parseGateChallenge(challengeText);
-      setParsedChallenge(challenge);
-
-      const selectedTicket = tickets.find((ticket) => ticket.tokenId === selectedTokenId);
-
-      if (!selectedTicket) {
-        throw new Error('선택한 티켓을 찾을 수 없습니다.');
-      }
-
-      if (selectedTicket.status !== 'VALID') {
-        throw new Error('사용 가능한 티켓만 입장 증명에 사용할 수 있습니다.');
-      }
-
-      const proofPayload = await buildProofPayload({
-        challenge,
-        ticket: selectedTicket,
-        profile,
-        savedVc,
-      });
-
-      setEntryProof(proofPayload);
-      saveLastEntryProof(proofPayload);
-      setStatusMessage(`ZKP entry proof를 생성했습니다. (${proofPayload.proofMeta.generatedMs}ms)`);
-      return proofPayload;
-    } catch (nextError) {
-      setError(nextError.message || 'ZKP proof 생성에 실패했습니다.');
-      return null;
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  const submitEntryProof = async () => {
-    setError('');
-    setStatusMessage('');
-    setGateResult(null);
-    setIsSubmitting(true);
-
-    try {
-      const challenge = parsedChallenge || parseGateChallenge(challengeText);
-      const proofPayload = entryProof || (await createEntryProof());
-
-      if (!proofPayload) {
-        throw new Error('제출할 proof payload가 없습니다.');
-      }
-
-      const response = await fetch(challenge.endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(proofPayload.verifyProofBody),
-      });
-
-      const resultText = await response.text();
-      let result;
-
-      try {
-        result = resultText ? JSON.parse(resultText) : {};
-      } catch {
-        result = { message: resultText };
-      }
-
-      setGateResult({
-        ok: response.ok,
-        status: response.status,
-        body: result,
-      });
-
-      if (!response.ok) {
-        throw new Error(result?.message || result?.error || `Gate verify failed (${response.status})`);
-      }
-
-      setStatusMessage('Gate endpoint로 proof를 제출했습니다.');
-    } catch (nextError) {
-      setError(nextError.message || 'Gate endpoint 제출에 실패했습니다.');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
   const copyEntryProof = async () => {
     if (!entryProof) return;
 
     await navigator.clipboard.writeText(JSON.stringify(entryProof.verifyProofBody, null, 2));
     setStatusMessage('/verify-proof 요청 payload를 클립보드에 복사했습니다.');
   };
+
+  const flowTitle = {
+    idle: 'QR 대기 중',
+    proof: '증명 생성 중...',
+    verify: '입장 확인 중...',
+    done: gateResult?.ok ? '입장 승인' : '입장 확인 완료',
+    error: '처리 실패',
+  }[flowStep];
+
+  const flowDescription = {
+    idle: 'Gate QR을 읽으면 nonce를 파싱하고 proof 생성부터 Gate 제출까지 자동으로 진행합니다.',
+    proof: '로컬 wasm/zkey로 Groth16 proof를 생성하고 있습니다. 잠시만 기다려 주세요.',
+    verify: '생성한 proof를 Gate verify-proof endpoint로 제출하고 있습니다.',
+    done: gateResult?.ok ? 'Gate가 proof를 검증했고 입장이 승인되었습니다.' : 'Gate 응답을 확인했습니다.',
+    error: '같은 QR의 중복 제출은 막았습니다. 새 Gate QR을 다시 스캔해 주세요.',
+  }[flowStep];
 
   return (
     <section className="content-stack">
@@ -402,17 +434,15 @@ export default function EntryProofPage() {
             <textarea
               value={challengeText}
               onChange={handleChallengeTextChange}
+              disabled={isProcessing}
               placeholder='http://192.168.0.20:5174/entry?nonce=field-decimal&endpoint=http%3A%2F%2F192.168.0.20%3A3000%2Fapi%2Fgate%2Fverify-proof&expiresIn=30'
               rows={10}
             />
           </label>
 
           <div className="button-row">
-            <button className="secondary-button" type="button" onClick={fillSampleChallenge}>
+            <button className="secondary-button" type="button" onClick={fillSampleChallenge} disabled={isProcessing}>
               샘플 채우기
-            </button>
-            <button className="primary-button" type="button" onClick={parseChallenge} disabled={!challengeText}>
-              Challenge 읽기
             </button>
           </div>
 
@@ -428,6 +458,19 @@ export default function EntryProofPage() {
               </div>
             </div>
           )}
+        </section>
+
+        <section className={`panel auto-flow-panel ${flowStep}`}>
+          <div className={isProcessing ? 'spinner' : 'spinner idle'} aria-hidden="true" />
+          <div>
+            <h3>{flowTitle}</h3>
+            <p>{flowDescription}</p>
+            {parsedChallenge && (
+              <small>
+                nonce {parsedChallenge.nonce} · token #{selectedTokenId || '-'}
+              </small>
+            )}
+          </div>
         </section>
 
         <section className={savedVc ? 'panel status-panel success' : 'panel status-panel warning'}>
@@ -486,13 +529,18 @@ export default function EntryProofPage() {
           <input
             value={walletAddress}
             onChange={(event) => setWalletAddress(event.target.value)}
+            disabled={isProcessing}
             placeholder="0x..."
           />
         </label>
 
         <label>
           사용할 티켓
-          <select value={selectedTokenId} onChange={(event) => setSelectedTokenId(event.target.value)}>
+          <select
+            value={selectedTokenId}
+            onChange={(event) => setSelectedTokenId(event.target.value)}
+            disabled={isProcessing}
+          >
             {tickets.map((ticket) => (
               <option key={ticket.tokenId} value={ticket.tokenId}>
                 #{ticket.tokenId} / {ticket.eventTitle} / {ticket.seat} / {ticket.status}
@@ -520,17 +568,11 @@ export default function EntryProofPage() {
             className="secondary-button"
             type="button"
             onClick={syncTickets}
-            disabled={isSyncingTickets || !walletAddress}
+            disabled={isSyncingTickets || isProcessing || !walletAddress}
           >
             {isSyncingTickets ? '티켓 동기화 중' : '서버에서 티켓 동기화'}
           </button>
-          <button className="secondary-button" type="button" onClick={createEntryProof} disabled={isGenerating}>
-            {isGenerating ? 'proof 생성 중' : '입장 proof 생성'}
-          </button>
-          <button className="primary-button" type="button" onClick={submitEntryProof} disabled={isGenerating || isSubmitting}>
-            {isSubmitting ? 'Gate 제출 중' : 'Gate로 proof 제출'}
-          </button>
-          <button className="secondary-button" type="button" onClick={copyEntryProof} disabled={!entryProof}>
+          <button className="secondary-button" type="button" onClick={copyEntryProof} disabled={!entryProof || isProcessing}>
             /verify-proof payload 복사
           </button>
         </div>
