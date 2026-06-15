@@ -2,7 +2,6 @@ import { useMemo, useState } from 'react';
 import JsonPreview from '../components/JsonPreview.jsx';
 import TicketCard from '../components/TicketCard.jsx';
 import { API_BASE_URL, API_BASE_URL_SOURCE, IS_MOCK } from '../config.js';
-import { mockHolderProfile, mockTickets } from '../data/mockWalletData.js';
 import {
   clearSelectedTicket,
   loadHolderProfile,
@@ -24,11 +23,20 @@ function getInitialWalletAddress(profile) {
   return loadLastVp(null)?.walletAddress || profile?.walletAddress || '';
 }
 
+function getTicketKey(ticket) {
+  if (!ticket) return '';
+  return (
+    ticket.ticketKey ||
+    ticket._id ||
+    ticket.ticketId ||
+    ticket.id ||
+    `${ticket.tokenId || 'ticket'}-${ticket.eventId || ticket.eventTitle || ''}-${ticket.seatId || ticket.seat || ''}`
+  );
+}
+
 export default function TicketWalletPage() {
   const [profile, setProfile] = useState(() => {
-    const currentProfile = loadHolderProfile(mockHolderProfile);
-    saveHolderProfile(currentProfile);
-    return currentProfile;
+    return loadHolderProfile(null);
   });
   const [walletAddress, setWalletAddress] = useState(() => getInitialWalletAddress(profile));
   const [tickets, setTickets] = useState(() => loadTickets([]));
@@ -100,13 +108,6 @@ export default function TicketWalletPage() {
     }
   };
 
-  const handleResetTickets = () => {
-    saveTickets(mockTickets);
-    setTickets(mockTickets);
-    setStatusMessage('demo 티켓 목록을 복구했습니다.');
-    setError('');
-  };
-
   const handleClearSelection = () => {
     clearSelectedTicket();
     setSelectedTicket(null);
@@ -158,9 +159,6 @@ export default function TicketWalletPage() {
           <button className="primary-button" type="button" onClick={syncTickets} disabled={isSyncing || !walletAddress || IS_MOCK}>
             {isSyncing ? '동기화 중' : '서버에서 티켓 불러오기'}
           </button>
-          <button className="secondary-button" type="button" onClick={handleResetTickets}>
-            demo 티켓 복구
-          </button>
         </div>
 
         {!IS_MOCK && API_BASE_URL_SOURCE === 'auto' && (
@@ -196,9 +194,9 @@ export default function TicketWalletPage() {
         {tickets.length > 0 ? (
           tickets.map((ticket) => (
             <TicketCard
-              key={ticket.tokenId}
+              key={getTicketKey(ticket)}
               ticket={ticket}
-              selected={selectedTicket?.tokenId === ticket.tokenId}
+              selected={getTicketKey(selectedTicket) === getTicketKey(ticket)}
               onSelect={handleSelectTicket}
             />
           ))

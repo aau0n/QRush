@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import JsonPreview from '../components/JsonPreview.jsx';
-import { sampleVcPayload } from '../data/mockWalletData.js';
 import { clearVc, loadVc, saveVc } from '../services/storage.js';
 
 function getSubjectName(payload) {
@@ -82,12 +81,6 @@ export default function VcStorePage() {
     return () => window.clearTimeout(timer);
   }, [incomingVcText]);
 
-  const fillSample = () => {
-    setVcText(JSON.stringify(sampleVcPayload, null, 2));
-    setStatusMessage('샘플 VC JSON을 입력창에 채웠습니다.');
-    setError('');
-  };
-
   const handleSave = () => {
     setError('');
     setStatusMessage('');
@@ -121,7 +114,7 @@ export default function VcStorePage() {
         <h2>VC 수신 및 저장</h2>
         <p>
           C 웹의 VC 발급 화면에서 전달받은 VC JSON을 D 지갑에 저장하는 화면입니다.
-          현재는 QR 스캔 대신 JSON 붙여넣기로 시뮬레이션합니다.
+          QR 링크 또는 JSON 붙여넣기로 VC를 저장합니다.
         </p>
       </div>
 
@@ -143,9 +136,6 @@ export default function VcStorePage() {
           </label>
 
           <div className="button-row">
-            <button className="secondary-button" type="button" onClick={fillSample}>
-              샘플 채우기
-            </button>
             <button className="primary-button" type="button" onClick={handleSave} disabled={!vcText}>
               VC 저장하기
             </button>

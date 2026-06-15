@@ -1,9 +1,15 @@
 import { mockEvents, mockTickets } from '../data/mockData.js';
-import { API_BASE_URL, IS_MOCK } from '../config.js';
+import { API_BASE_URL, CHAIN_RPC_URL, IS_MOCK, TICKET_NFT_ADDRESS } from '../config.js';
 import { randomId } from '../utils/hash.js';
-import { getAddress } from 'ethers';
+import { Contract, JsonRpcProvider, getAddress } from 'ethers';
 
 const delay = (ms = 350) => new Promise((resolve) => setTimeout(resolve, ms));
+const TICKET_NFT_ABI = [
+  'function ownerOf(uint256 tokenId) view returns (address)',
+  'function getTicket(uint256 tokenId) view returns (tuple(uint256 eventId, uint256 seatId, uint256 issuedAt, uint8 status))',
+  'event TicketMinted(uint256 indexed tokenId, address indexed to, uint256 eventId, uint256 seatId)',
+];
+const TICKET_STATUS_LABELS = ['VALID', 'USED', 'CANCELLED'];
 
 // 실제 서버가 설정돼 있으면 fetch, 아니면 mock 폴백.
 async function request(path, options = {}, fallback) {
@@ -164,6 +170,64 @@ export async function getTicketsByWallet(walletAddress) {
   }
 
   return { walletAddress: normalizeWalletAddress(walletAddress), tickets: [] };
+}
+
+function fromChainSeatId(seatId) {
+  const raw = String(seatId || '');
+  if (!/^\d+$/.test(raw)) return raw || '-';
+
+  const value = Number(raw);
+  const row = Math.floor(value / 1000);
+  const col = value % 1000;
+  if (row >= 1 && row <= 26 && col >= 1) {
+    return `${String.fromCharCode(64 + row)}${col}`;
+  }
+
+  return raw;
+}
+
+function fromChainEventId(eventId) {
+  const raw = String(eventId || '');
+  if (!/^\d+$/.test(raw)) return raw;
+  return `match-${raw.padStart(3, '0')}`;
+}
+
+// A 서버가 내려간 상황에서 B 체인 RPC를 직접 조회한다.
+// TicketMinted(to=wallet) 이벤트로 tokenId/eventId/seatId를 찾고 ownerOf로 현재 소유자를 재확인한다.
+export async function getTicketsByWalletOnChain(walletAddress) {
+  const normalizedWallet = getAddress(walletAddress);
+  const provider = new JsonRpcProvider(CHAIN_RPC_URL);
+  const ticketContract = new Contract(TICKET_NFT_ADDRESS, TICKET_NFT_ABI, provider);
+  const filter = ticketContract.filters.TicketMinted(null, normalizedWallet);
+  const logs = await ticketContract.queryFilter(filter, 0, 'latest');
+
+  const tickets = [];
+  for (const log of logs) {
+    const tokenId = log.args.tokenId.toString();
+    const owner = await ticketContract.ownerOf(tokenId);
+    if (owner.toLowerCase() !== normalizedWallet.toLowerCase()) continue;
+
+    const ticketData = await ticketContract.getTicket(tokenId);
+    const eventId = fromChainEventId(ticketData.eventId?.toString() || log.args.eventId?.toString());
+    const seatId = fromChainSeatId(ticketData.seatId?.toString() || log.args.seatId?.toString());
+    const statusIndex = Number(ticketData.status ?? 0);
+    tickets.push({
+      tokenId,
+      eventId,
+      seatId,
+      owner,
+      status: TICKET_STATUS_LABELS[statusIndex] || 'ON_CHAIN',
+      source: 'chain',
+    });
+  }
+
+  return {
+    walletAddress: normalizedWallet,
+    tickets,
+    source: 'chain',
+    rpcUrl: CHAIN_RPC_URL,
+    contractAddress: TICKET_NFT_ADDRESS,
+  };
 }
 
 // GET /api/gate/result/:nonce  (C 게이트 단말기 폴링)

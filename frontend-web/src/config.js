@@ -13,6 +13,10 @@ export const IS_MOCK = !API_BASE_URL;
 export const ISSUER_ADDRESS =
   env.VITE_ISSUER_ADDRESS || '0x0000000000000000000000000000000000000000';
 
+export const CHAIN_RPC_URL = env.VITE_CHAIN_RPC_URL || 'http://127.0.0.1:8545';
+export const TICKET_NFT_ADDRESS =
+  env.VITE_TICKET_NFT_ADDRESS || '0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9';
+
 // D 앱(frontend-app) 주소 — 예매/입장 QR이 가리키는 HTTP fallback 대상.
 // 비우면 현재 접속한 호스트의 5174 포트로 자동 추정(같은 서버에 D 앱이 뜬 경우).
 // localhost로 열면 폰에서 안 닿으니, C 웹을 반드시 서버 IP로 열 것.

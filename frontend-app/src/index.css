@@ -1,6 +1,6 @@
 :root {
   color: #0f172a;
-  background: #ffffff;
+  background: #f1f5f9;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
@@ -15,9 +15,11 @@
 }
 
 body {
+  background: #f1f5f9;
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 #root {
@@ -47,7 +49,10 @@ button:disabled {
   background: #ffffff;
   display: flex;
   flex-direction: column;
+  margin: 0 auto;
+  max-width: 1080px;
   min-height: 100vh;
+  width: 100%;
 }
 
 .topbar {
@@ -70,6 +75,7 @@ button:disabled {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
+  min-height: 44px;
   padding: 0;
   text-align: left;
 }
@@ -111,6 +117,7 @@ button:disabled {
   font-size: 1rem;
   font-weight: 600;
   padding: 9px 16px;
+  white-space: nowrap;
 }
 
 .nav-item:hover {
@@ -125,12 +132,13 @@ button:disabled {
 
 .page {
   background: #ffffff;
-  padding: 32px 36px 48px;
+  flex: 1;
+  padding: clamp(18px, 3.5vw, 36px) clamp(16px, 3.5vw, 36px) clamp(28px, 6vw, 56px);
 }
 
 .content-stack {
   display: grid;
-  gap: 24px;
+  gap: clamp(16px, 3vw, 24px);
 }
 
 .page-header {
@@ -139,7 +147,7 @@ button:disabled {
 
 .page-header h2 {
   color: #0f172a;
-  font-size: 2.25rem;
+  font-size: clamp(1.65rem, 5vw, 2.25rem);
   line-height: 1.1;
   margin: 8px 0 12px;
 }
@@ -154,7 +162,8 @@ button:disabled {
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   box-shadow: 0 12px 30px rgba(15, 23, 42, 0.06);
-  padding: 22px;
+  overflow: hidden;
+  padding: clamp(16px, 3vw, 22px);
 }
 
 .grid-3 {
@@ -212,8 +221,9 @@ button:disabled {
   border-radius: 8px;
   color: #075985;
   font-weight: 800;
-  min-height: 44px;
-  padding: 10px 14px;
+  min-height: 48px;
+  padding: 11px 14px;
+  text-align: center;
 }
 
 .section-title {
@@ -227,6 +237,7 @@ button:disabled {
 .section-title h3 {
   color: #0f172a;
   margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .section-title span {
@@ -301,9 +312,10 @@ code {
 label {
   color: #334155;
   display: grid;
-  font-size: 0.92rem;
+  font-size: 0.95rem;
   font-weight: 700;
   gap: 7px;
+  min-width: 0;
 }
 
 textarea,
@@ -313,12 +325,16 @@ input {
   border-radius: 8px;
   color: #0f172a;
   font: inherit;
+  font-size: 16px;
+  min-width: 0;
   padding: 12px 14px;
+  width: 100%;
 }
 
 textarea {
   min-height: 180px;
   resize: vertical;
+  word-break: break-word;
 }
 
 .button-row {
@@ -327,14 +343,19 @@ textarea {
   gap: 10px;
 }
 
+.button-row > button {
+  flex: 1 1 180px;
+}
+
 .primary-button {
   background: #2563eb;
   border: 0;
   border-radius: 8px;
   color: white;
   font-weight: 800;
-  min-height: 44px;
-  padding: 10px 14px;
+  min-height: 48px;
+  padding: 11px 14px;
+  text-align: center;
 }
 
 .primary-button:disabled {
@@ -347,8 +368,9 @@ textarea {
   border-radius: 8px;
   color: #991b1b;
   font-weight: 800;
-  min-height: 44px;
-  padding: 10px 14px;
+  min-height: 48px;
+  padding: 11px 14px;
+  text-align: center;
 }
 
 .success-text {
@@ -564,6 +586,7 @@ select {
 .ticket-card h3 {
   color: #0f172a;
   margin: 4px 0 0;
+  overflow-wrap: anywhere;
 }
 
 .ticket-token {
@@ -594,5 +617,136 @@ select {
 .ticket-meta dd {
   color: #0f172a;
   margin: 0;
+  overflow-wrap: anywhere;
   text-align: right;
+}
+
+@media (min-width: 1081px) {
+  .app-shell {
+    box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.05), 0 24px 80px rgba(15, 23, 42, 0.12);
+  }
+}
+
+@media (max-width: 1080px) {
+  .app-shell {
+    max-width: none;
+  }
+
+  .topbar {
+    align-items: stretch;
+    gap: 12px;
+    padding: 14px 16px 10px;
+  }
+
+  .brand {
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .brand-name {
+    font-size: 1.45rem;
+  }
+
+  .brand-tag {
+    font-size: 0.85rem;
+  }
+
+  .topnav {
+    flex-wrap: nowrap;
+    gap: 6px;
+    margin-left: 0;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+    width: 100%;
+  }
+
+  .topnav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .nav-item {
+    flex: 0 0 auto;
+    min-height: 42px;
+    padding: 9px 13px;
+  }
+
+  .grid-3,
+  .two-column,
+  .summary-grid,
+  .visibility-grid,
+  .proof-meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .section-title {
+    align-items: start;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .section-title span {
+    text-align: left;
+  }
+
+  .status-panel {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ticket-mini {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .ticket-mini span:not(.badge) {
+    overflow-wrap: anywhere;
+  }
+}
+
+@media (max-width: 680px) {
+  .page {
+    padding: 16px 14px 28px;
+  }
+
+  .page-header p {
+    font-size: 0.95rem;
+  }
+
+  .panel {
+    padding: 15px;
+  }
+
+  .button-row {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .button-row > button,
+  .ticket-card button {
+    width: 100%;
+  }
+
+  .ticket-mini {
+    grid-template-columns: 1fr;
+  }
+
+  textarea {
+    min-height: 140px;
+  }
+
+  pre {
+    font-size: 0.85rem;
+    max-height: 360px;
+  }
+
+  .ticket-card-top,
+  .ticket-meta div {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .ticket-meta dd {
+    text-align: left;
+  }
 }

@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import JsonPreview from '../components/JsonPreview.jsx';
-import { mockHolderProfile } from '../data/mockWalletData.js';
 import { generateEntryProof } from '../services/zkpProof.js';
 import {
   loadHolderProfile,
@@ -14,14 +13,6 @@ import {
 } from '../services/storage.js';
 import { fetchTicketsByWallet } from '../services/ticketSync.js';
 
-const sampleGateChallenge = {
-  type: 'QRushGateChallenge',
-  nonce: '763585835955600474492399',
-  nonceHex: '0xa1b21234567890abcdef',
-  endpoint: 'http://192.168.0.20:3000/api/gate/verify-proof',
-  expiresIn: 30,
-};
-
 const circuitMeta = {
   scheme: 'Groth16',
   curve: 'BN254',
@@ -32,16 +23,29 @@ const circuitMeta = {
   publicSignals: 5,
 };
 
-function getInitialSelectedTokenId(tickets) {
+function getTicketKey(ticket) {
+  if (!ticket) return '';
+  return (
+    ticket.ticketKey ||
+    ticket._id ||
+    ticket.ticketId ||
+    ticket.id ||
+    `${ticket.tokenId || 'ticket'}-${ticket.eventId || ticket.eventTitle || ''}-${ticket.seatId || ticket.seat || ''}`
+  );
+}
+
+function getInitialSelectedTicketKey(tickets) {
   const selectedTicketFromWallet = loadSelectedTicket(null);
   const selectedTicketStillExists = tickets.find(
-    (ticket) => ticket.tokenId === selectedTicketFromWallet?.tokenId,
+    (ticket) =>
+      getTicketKey(ticket) === getTicketKey(selectedTicketFromWallet) ||
+      ticket.tokenId === selectedTicketFromWallet?.tokenId,
   );
 
   return (
-    selectedTicketStillExists?.tokenId ||
-    tickets.find((ticket) => ticket.status === 'VALID')?.tokenId ||
-    tickets[0]?.tokenId ||
+    getTicketKey(selectedTicketStillExists) ||
+    getTicketKey(tickets.find((ticket) => ticket.status === 'VALID')) ||
+    getTicketKey(tickets[0]) ||
     ''
   );
 }
@@ -181,12 +185,12 @@ async function buildProofPayload({ challenge, ticket, profile, savedVc }) {
 }
 
 export default function EntryProofPage() {
-  const [profile] = useState(() => loadHolderProfile(mockHolderProfile));
+  const [profile] = useState(() => loadHolderProfile(null));
   const [savedVc] = useState(() => loadVc(null));
   const [walletAddress, setWalletAddress] = useState(() => getInitialWalletAddress(profile));
   const [tickets, setTickets] = useState(() => loadTickets([]));
-  const [selectedTokenId, setSelectedTokenId] = useState(() =>
-    getInitialSelectedTokenId(loadTickets([])),
+  const [selectedTicketKey, setSelectedTicketKey] = useState(() =>
+    getInitialSelectedTicketKey(loadTickets([])),
   );
   const [challengeText, setChallengeText] = useState(getInitialChallengeText);
   const [parsedChallenge, setParsedChallenge] = useState(getInitialParsedChallenge);
@@ -203,15 +207,6 @@ export default function EntryProofPage() {
     setParsedChallenge(null);
     setEntryProof(null);
     setGateResult(null);
-  };
-
-  const fillSampleChallenge = () => {
-    setChallengeText(JSON.stringify(sampleGateChallenge, null, 2));
-    setParsedChallenge(null);
-    setEntryProof(null);
-    setGateResult(null);
-    setStatusMessage('샘플 Gate Challenge JSON을 입력했습니다.');
-    setError('');
   };
 
   const parseChallenge = () => {
@@ -238,16 +233,17 @@ export default function EntryProofPage() {
       saveTickets(syncedTickets);
       setTickets(syncedTickets);
 
-      const nextSelectedTokenId =
-        syncedTickets.find((ticket) => ticket.status === 'VALID')?.tokenId ||
-        syncedTickets[0]?.tokenId ||
+      const nextSelectedTicketKey =
+        getTicketKey(syncedTickets.find((ticket) => ticket.status === 'VALID')) ||
+        getTicketKey(syncedTickets[0]) ||
         '';
 
-      setSelectedTokenId(nextSelectedTokenId);
+      setSelectedTicketKey(nextSelectedTicketKey);
 
+      const nextSelectedTicket = syncedTickets.find((ticket) => getTicketKey(ticket) === nextSelectedTicketKey);
       setStatusMessage(
-        nextSelectedTokenId
-          ? `서버에서 티켓 ${syncedTickets.length}개를 동기화하고 #${nextSelectedTokenId}를 선택했습니다.`
+        nextSelectedTicket
+          ? `서버에서 티켓 ${syncedTickets.length}개를 동기화하고 ${nextSelectedTicket.seat} 좌석을 선택했습니다.`
           : '서버에서 조회된 티켓이 없습니다. 예매에 사용한 MetaMask 주소인지 확인해 주세요.',
       );
     } catch (nextError) {
@@ -275,7 +271,7 @@ export default function EntryProofPage() {
       const challenge = parsedChallenge || parseGateChallenge(challengeText);
       setParsedChallenge(challenge);
 
-      const selectedTicket = tickets.find((ticket) => ticket.tokenId === selectedTokenId);
+      const selectedTicket = tickets.find((ticket) => getTicketKey(ticket) === selectedTicketKey);
 
       if (!selectedTicket) {
         throw new Error('선택한 티켓을 찾을 수 없습니다.');
@@ -408,9 +404,6 @@ export default function EntryProofPage() {
           </label>
 
           <div className="button-row">
-            <button className="secondary-button" type="button" onClick={fillSampleChallenge}>
-              샘플 채우기
-            </button>
             <button className="primary-button" type="button" onClick={parseChallenge} disabled={!challengeText}>
               Challenge 읽기
             </button>
@@ -445,7 +438,7 @@ export default function EntryProofPage() {
       <section className="panel proof-meta-panel">
         <div className="section-title">
           <h3>실제 증명 메타데이터</h3>
-          <span>mock payload가 아니라 로컬 wasm/zkey로 생성하는 proof입니다.</span>
+          <span>로컬 wasm/zkey로 생성하는 proof입니다.</span>
         </div>
         <div className="proof-meta-grid">
           <div>
@@ -492,10 +485,10 @@ export default function EntryProofPage() {
 
         <label>
           사용할 티켓
-          <select value={selectedTokenId} onChange={(event) => setSelectedTokenId(event.target.value)}>
+          <select value={selectedTicketKey} onChange={(event) => setSelectedTicketKey(event.target.value)}>
             {tickets.map((ticket) => (
-              <option key={ticket.tokenId} value={ticket.tokenId}>
-                #{ticket.tokenId} / {ticket.eventTitle} / {ticket.seat} / {ticket.status}
+              <option key={getTicketKey(ticket)} value={getTicketKey(ticket)}>
+                {ticket.seat} / {ticket.eventTitle} / Token #{ticket.tokenId} / {ticket.status}
               </option>
             ))}
           </select>
@@ -504,12 +497,12 @@ export default function EntryProofPage() {
         <div className="ticket-mini-list">
           {tickets.map((ticket) => (
             <div
-              key={ticket.tokenId}
-              className={ticket.tokenId === selectedTokenId ? 'ticket-mini selected' : 'ticket-mini'}
+              key={getTicketKey(ticket)}
+              className={getTicketKey(ticket) === selectedTicketKey ? 'ticket-mini selected' : 'ticket-mini'}
             >
-              <strong>#{ticket.tokenId}</strong>
+              <strong>{ticket.seat}</strong>
               <span>{ticket.eventTitle}</span>
-              <span>{ticket.seat}</span>
+              <span>Token #{ticket.tokenId}</span>
               <span className={ticket.status === 'VALID' ? 'badge valid' : 'badge used'}>{ticket.status}</span>
             </div>
           ))}

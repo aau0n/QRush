@@ -42,12 +42,30 @@ const mockState = {
 
 let provider, signer, issuerRegistry, vcRegistry, ticketNFT;
 function initContracts() {
-  if (provider) return;
-  provider = new ethers.JsonRpcProvider(process.env.RPC_URL || "http://127.0.0.1:8545");
-  signer = new ethers.Wallet(process.env.SERVER_PRIVATE_KEY, provider);
-  issuerRegistry = new ethers.Contract(process.env.ISSUER_REGISTRY_ADDRESS, ISSUER_REGISTRY_ABI, signer);
-  vcRegistry = new ethers.Contract(process.env.VC_REGISTRY_ADDRESS, VC_REGISTRY_ABI, signer);
-  ticketNFT = new ethers.Contract(process.env.TICKET_NFT_ADDRESS, TICKET_NFT_ABI, signer);
+  if (provider && signer && issuerRegistry && vcRegistry && ticketNFT) return;
+
+  const required = [
+    "SERVER_PRIVATE_KEY",
+    "ISSUER_REGISTRY_ADDRESS",
+    "VC_REGISTRY_ADDRESS",
+    "TICKET_NFT_ADDRESS",
+  ];
+  const missing = required.filter((key) => !process.env[key]);
+  if (missing.length > 0) {
+    throw new Error(`Missing blockchain env: ${missing.join(", ")}`);
+  }
+
+  const nextProvider = new ethers.JsonRpcProvider(process.env.RPC_URL || "http://127.0.0.1:8545");
+  const nextSigner = new ethers.Wallet(process.env.SERVER_PRIVATE_KEY, nextProvider);
+  const nextIssuerRegistry = new ethers.Contract(process.env.ISSUER_REGISTRY_ADDRESS, ISSUER_REGISTRY_ABI, nextSigner);
+  const nextVcRegistry = new ethers.Contract(process.env.VC_REGISTRY_ADDRESS, VC_REGISTRY_ABI, nextSigner);
+  const nextTicketNFT = new ethers.Contract(process.env.TICKET_NFT_ADDRESS, TICKET_NFT_ABI, nextSigner);
+
+  provider = nextProvider;
+  signer = nextSigner;
+  issuerRegistry = nextIssuerRegistry;
+  vcRegistry = nextVcRegistry;
+  ticketNFT = nextTicketNFT;
 }
 
 /** Hardhat localhost: getTransactionCount can lag behind the account nonce. */

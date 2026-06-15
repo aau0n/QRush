@@ -1,5 +1,5 @@
 import { API_BASE_URL } from '../config.js';
-import { ticketEvents } from '../data/mockWalletData.js';
+import { ticketEvents } from '../data/ticketEvents.js';
 import { getAddress } from 'ethers';
 
 function normalizeStatus(status) {
@@ -34,13 +34,37 @@ function getEventDate(ticket, eventId) {
   );
 }
 
-function normalizeTicket(ticket) {
-  const tokenId = String(ticket?.tokenId ?? ticket?.id ?? '');
+function getTicketTokenId(ticket) {
+  return String(
+    ticket?.tokenId ??
+      ticket?.tokenID ??
+      ticket?.token_id ??
+      ticket?.nftTokenId ??
+      ticket?.nftTokenID ??
+      '',
+  );
+}
+
+function getTicketKey(ticket, tokenId, index) {
+  return String(
+    ticket?._id ??
+      ticket?.ticketId ??
+      ticket?.ticketID ??
+      ticket?.dbId ??
+      ticket?.id ??
+      `${tokenId || 'ticket'}-${ticket?.eventId || ''}-${ticket?.seatId || ticket?.seat || ''}-${index}`,
+  );
+}
+
+function normalizeTicket(ticket, index) {
+  const tokenId = getTicketTokenId(ticket);
   const eventId = ticket?.eventId ? String(ticket.eventId) : '';
   const seat = ticket?.seat || ticket?.seatId || '-';
+  const ticketKey = getTicketKey(ticket, tokenId, index);
 
   return {
     ...ticket,
+    ticketKey,
     tokenId,
     eventId,
     eventTitle: getEventTitle(ticket, eventId),
