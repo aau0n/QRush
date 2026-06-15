@@ -2,7 +2,7 @@
   "network": "localhost",
   "chainId": 31337,
   "rpcUrl": "http://127.0.0.1:8545",
-  "deployedAt": "2026-06-13T15:36:08.381Z",
+  "deployedAt": "2026-06-15T09:26:25.385Z",
   "contracts": {
     "IssuerRegistry": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
     "VCRegistry": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
