@@ -205,7 +205,15 @@ async function requestTicketsByWallet(walletAddress) {
   );
 
   const tickets = Array.isArray(body) ? body : body?.tickets || [];
-  return tickets;
+
+  // 같은 tokenId가 중복으로 와도 1건만 남긴다 (목록 중복 표시 방지).
+  const seen = new Set();
+  return tickets.filter((ticket) => {
+    const id = String(ticket?.tokenId ?? '');
+    if (!id || seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
 }
 
 // GET /api/ticket/by-wallet/:wallet  (C 티켓 확인 페이지)

@@ -42,7 +42,12 @@ exports.mintTicket = async (req, res) => {
  */
 exports.getTicketsByWallet = async (req, res) => {
   try {
-    const tickets = await Ticket.find({ buyerWallet: req.params.wallet });
+    // 지갑 주소 대소문자 무시로 정확일치 조회 (체크섬/소문자 혼용 대비)
+    const wallet = String(req.params.wallet || '');
+    const escaped = wallet.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const tickets = await Ticket.find({
+      buyerWallet: new RegExp(`^${escaped}$`, "i"),
+    });
     res.json({ success: true, tickets });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
