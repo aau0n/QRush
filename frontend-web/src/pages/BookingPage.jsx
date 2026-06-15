@@ -16,6 +16,17 @@ function calcAge(birthdateStr) {
   return age;
 }
 
+function matchTeams(title) {
+  if (!title || !title.includes('vs')) return null;
+  const [a, b] = title.split(/\s*vs\s*/);
+  return { a: a?.trim(), b: b?.trim() };
+}
+
+function gradIndex(id) {
+  const n = parseInt(String(id).replace(/\D/g, ''), 10) || 0;
+  return n % 6;
+}
+
 export default function BookingPage() {
   const query = new URLSearchParams(window.location.search);
   const eventId = query.get('eventId') || mockEvents[0].id;
@@ -171,21 +182,38 @@ export default function BookingPage() {
     runBooking(parsedVp, signature);
   };
 
+  const teams = matchTeams(event.title);
+  const gradIdx = gradIndex(event.id);
+
   return (
-    <section className="content-stack">
-      <div className="page-header">
-        <p className="eyebrow">03 Booking</p>
-        <h2>좌석 선택과 예매 처리</h2>
-        <p>좌석을 선택하고 QR로 예매를 진행하세요.</p>
+    <section className="content-stack booking-page">
+      <div className="booking-hero">
+        <div className={`booking-hero-poster grad-${gradIdx}`}>
+          {teams ? (
+            <>
+              <b>{teams.a}</b>
+              <em>VS</em>
+              <b>{teams.b}</b>
+            </>
+          ) : (
+            <b className="poster-round">R16</b>
+          )}
+        </div>
+        <div className="booking-hero-info">
+          <span className="badge-sport">스포츠 · 축구</span>
+          <h2>{event.title}</h2>
+          <p>
+            {event.date} {event.time} · {event.venue}
+          </p>
+          <strong className="hero-price">{event.price}</strong>
+        </div>
       </div>
 
-      <div className="two-column wide-left">
-        <section className="panel">
+      <div className="booking-grid">
+        <section className="panel seat-panel">
           <div className="section-title">
-            <h3>{event.title}</h3>
-            <span>
-              {event.date} {event.time} / {event.venue}
-            </span>
+            <h3>좌석 선택</h3>
+            <span>원하는 좌석을 선택하세요</span>
           </div>
 
           <div className="screen-marker">STAGE</div>
@@ -207,22 +235,48 @@ export default function BookingPage() {
             )}
           </div>
 
-          <div className="booking-actions">
-            <button className="secondary-button" onClick={connectWallet} type="button">
-              {walletAddress
-                ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
-                : '지갑 연결'}
-            </button>
+          <div className="seat-legend">
+            <span><i className="seat-dot avail" />선택 가능</span>
+            <span><i className="seat-dot sel" />선택한 좌석</span>
           </div>
         </section>
 
-        <section className="panel">
-          <QRCodePanel label="D 앱으로 스캔할 VP 생성 QR" value={deeplink} />
-          <pre>{deeplink}</pre>
-          <p className="hint-text">
-            폰의 MetaMask 앱 내 브라우저로 이 링크를 열면 VP 서명 후 자동으로 돌아옵니다.
-          </p>
-        </section>
+        <aside className="panel booking-summary">
+          <h3>예매 정보</h3>
+          <dl className="summary-list">
+            <div>
+              <dt>경기</dt>
+              <dd>{event.title}</dd>
+            </div>
+            <div>
+              <dt>일시</dt>
+              <dd>
+                {event.date} {event.time}
+              </dd>
+            </div>
+            <div>
+              <dt>장소</dt>
+              <dd>{event.venue}</dd>
+            </div>
+            <div>
+              <dt>선택 좌석</dt>
+              <dd className="summary-seat">{selectedSeat}</dd>
+            </div>
+          </dl>
+          <div className="summary-total">
+            <span>결제 금액</span>
+            <strong>{event.price}</strong>
+          </div>
+          <button className="secondary-button full" onClick={connectWallet} type="button">
+            {walletAddress
+              ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
+              : '지갑 연결'}
+          </button>
+          <div className="summary-qr">
+            <QRCodePanel label="D 앱으로 스캔할 VP 생성 QR" value={deeplink} />
+            <p className="hint-text">폰 MetaMask 앱 내 브라우저로 열면 서명 후 자동 복귀합니다.</p>
+          </div>
+        </aside>
       </div>
 
       <section className="panel form-panel">

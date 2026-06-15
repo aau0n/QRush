@@ -798,3 +798,181 @@ dd {
     gap: 2px;
   }
 }
+
+/* ===== C 추가: TicketLink 스타일 예매 UI ===== */
+
+/* 포스터 그라데이션 팔레트 */
+.grad-0 { background: linear-gradient(140deg, #e51937, #7a0c1e); }
+.grad-1 { background: linear-gradient(140deg, #0b6e4f, #053d2c); }
+.grad-2 { background: linear-gradient(140deg, #1d4ed8, #0b2a6b); }
+.grad-3 { background: linear-gradient(140deg, #7c3aed, #3b1d7a); }
+.grad-4 { background: linear-gradient(140deg, #ea580c, #7c2d12); }
+.grad-5 { background: linear-gradient(140deg, #0891b2, #053b47); }
+
+/* --- 홈(공연 목록) --- */
+.tl-home { display: flex; flex-direction: column; gap: 22px; }
+
+.home-hero {
+  background: linear-gradient(115deg, #0b1437 0%, #1b2b8f 55%, #2f49d8 100%);
+  border-radius: 18px;
+  color: #fff;
+  overflow: hidden;
+  padding: 40px 36px;
+  position: relative;
+}
+.home-hero::after {
+  content: '⚽';
+  font-size: 180px;
+  opacity: 0.12;
+  position: absolute;
+  right: 10px;
+  top: -30px;
+}
+.hero-kicker { color: #9db4ff; font-size: 0.8rem; font-weight: 800; letter-spacing: 0.14em; }
+.home-hero h2 { font-size: 2rem; margin: 8px 0 6px; }
+.home-hero p { color: #c7d2fe; margin: 0; }
+
+.cat-nav { display: flex; flex-wrap: wrap; gap: 8px; }
+.cat-chip {
+  background: #f1f3f7;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  color: #4b5563;
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 9px 18px;
+}
+.cat-chip.active { background: #1b2b8f; color: #fff; }
+
+.section-head { align-items: baseline; display: flex; gap: 10px; justify-content: space-between; }
+.section-head h3 { font-size: 1.25rem; margin: 0; }
+.section-head span { color: #9ca3af; font-size: 0.85rem; }
+
+.poster-grid {
+  display: grid;
+  gap: 22px 18px;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+}
+.poster-card { display: flex; flex-direction: column; }
+
+.poster {
+  align-items: center;
+  aspect-ratio: 3 / 4;
+  border: none;
+  border-radius: 14px;
+  color: #fff;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+  padding: 18px;
+  position: relative;
+  text-align: center;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.poster:hover { box-shadow: 0 12px 28px rgba(0, 0, 0, 0.25); transform: translateY(-4px); }
+.poster-rank {
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 800;
+  left: 10px;
+  padding: 2px 9px;
+  position: absolute;
+  top: 10px;
+}
+.poster-dday {
+  background: #e51937;
+  border-radius: 8px;
+  font-size: 0.74rem;
+  font-weight: 800;
+  padding: 3px 9px;
+  position: absolute;
+  right: 10px;
+  top: 10px;
+}
+.poster-center { display: flex; flex-direction: column; gap: 6px; }
+.poster-center b { font-size: 1.15rem; font-weight: 800; line-height: 1.2; }
+.poster-center em { font-size: 0.8rem; font-style: normal; opacity: 0.8; }
+.poster-round { font-size: 1.4rem !important; letter-spacing: 0.05em; }
+.poster-league { bottom: 14px; font-size: 0.66rem; letter-spacing: 0.12em; opacity: 0.75; position: absolute; }
+
+.poster-meta { padding: 12px 2px 4px; }
+.poster-meta h4 { font-size: 1rem; margin: 0 0 6px; }
+.poster-when { color: #374151; font-size: 0.84rem; margin: 0; }
+.poster-where { color: #9ca3af; font-size: 0.82rem; margin: 2px 0 0; }
+.poster-foot { align-items: center; display: flex; justify-content: space-between; margin-top: 10px; }
+.poster-foot strong { color: #111827; font-size: 0.95rem; }
+.ticket-btn {
+  background: #e51937;
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 700;
+  padding: 7px 18px;
+}
+.ticket-btn:hover { background: #c2142e; }
+
+/* --- 예매(좌석 선택) --- */
+.booking-hero {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #eceef2;
+  border-radius: 16px;
+  display: flex;
+  gap: 20px;
+  padding: 18px;
+}
+.booking-hero-poster {
+  align-items: center;
+  border-radius: 12px;
+  color: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  height: 120px;
+  justify-content: center;
+  min-width: 96px;
+  width: 96px;
+}
+.booking-hero-poster b { font-size: 0.95rem; }
+.booking-hero-poster em { font-size: 0.7rem; font-style: normal; opacity: 0.85; }
+.booking-hero-info h2 { font-size: 1.5rem; margin: 6px 0 4px; }
+.booking-hero-info p { color: #6b7280; margin: 0 0 8px; }
+.badge-sport { background: #eef2ff; border-radius: 6px; color: #1b2b8f; font-size: 0.75rem; font-weight: 700; padding: 3px 9px; }
+.hero-price { color: #e51937; font-size: 1.15rem; }
+
+.booking-grid { align-items: start; display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr) 330px; }
+.seat-legend { color: #6b7280; display: flex; font-size: 0.82rem; gap: 18px; justify-content: center; margin-top: 14px; }
+.seat-legend span { align-items: center; display: flex; gap: 6px; }
+.seat-dot { border-radius: 4px; display: inline-block; height: 13px; width: 13px; }
+.seat-dot.avail { background: #e5e7eb; }
+.seat-dot.sel { background: #2563eb; }
+
+.booking-summary { position: sticky; top: 16px; }
+.booking-summary h3 { font-size: 1.1rem; margin: 0 0 14px; }
+.summary-list { display: grid; gap: 10px; margin: 0 0 14px; }
+.summary-list > div { display: flex; justify-content: space-between; gap: 12px; }
+.summary-list dt { color: #9ca3af; font-size: 0.84rem; }
+.summary-list dd { font-size: 0.86rem; margin: 0; text-align: right; }
+.summary-seat { color: #2563eb !important; font-weight: 800 !important; }
+.summary-total {
+  align-items: center;
+  border-top: 1px dashed #e5e7eb;
+  display: flex;
+  justify-content: space-between;
+  margin: 4px 0 14px;
+  padding-top: 14px;
+}
+.summary-total strong { color: #e51937; font-size: 1.2rem; }
+.secondary-button.full { width: 100%; }
+.summary-qr { margin-top: 16px; }
+
+@media (max-width: 860px) {
+  .booking-grid { grid-template-columns: 1fr; }
+  .booking-summary { position: static; }
+}
