@@ -44,6 +44,11 @@ export function getVcHashFromVc(savedVc) {
   return toFieldString(savedVc?.vcHash || savedVc?.vc?.vcHash || savedVc?.vc?.credentialSubject?.vcHash, 'vcHash');
 }
 
+// v3 본인 인증: vcSecret(VC 발급 시 받은 비밀값)을 proof private input으로 사용
+export function getVcSecretFromVc(savedVc) {
+  return toFieldString(savedVc?.vcSecret || savedVc?.vc?.vcSecret || savedVc?.vc?.credentialSubject?.vcSecret, 'vcSecret');
+}
+
 export function getNonceFromChallenge(challenge) {
   return toFieldString(challenge?.nonce, 'Gate nonce');
 }
@@ -51,6 +56,7 @@ export function getNonceFromChallenge(challenge) {
 export async function buildEntryProofInput({ challenge, ticket, savedVc }) {
   return {
     birthdate: getBirthdateFromVc(savedVc),
+    vcSecret: getVcSecretFromVc(savedVc),   // v3 본인 인증 (private)
     vcHash: getVcHashFromVc(savedVc),
     nonce: getNonceFromChallenge(challenge),
     tokenId: toFieldString(ticket?.tokenId, 'tokenId'),
